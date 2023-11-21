@@ -8,6 +8,8 @@ import (
 
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
+
+	yamlutil "github.com/vladlosev/hrval/pkg/yaml"
 )
 
 type ExpandCommandOptions struct {
@@ -40,16 +42,22 @@ func writeResults(output io.Writer, nodes []*yaml.Node) error {
 				return fmt.Errorf("unable to write output: %w", err)
 			}
 		}
-		bytes, err := yaml.Marshal(node)
+		encoder := yaml.NewEncoder(output)
+		encoder.SetIndent(2)
+		err := encoder.Encode(node)
 		if err != nil {
 			return fmt.Errorf("unable to marshal to YAML: %w", err)
 		}
-		_, err = output.Write(bytes)
-		if err != nil {
-			return fmt.Errorf("unable to write output: %w", err)
-		}
 	}
 	return nil
+}
+
+func filterHelmReleases(nodes []*yaml.Node) []*yaml.Node {
+	return yamlutil.FindDocumentsByGroupKind(
+		nodes,
+		"helm.toolkit.fluxcd.io",
+		"HelmRelease",
+	)
 }
 
 func MarshalToJSON(nodes []*yaml.Node) []byte {
@@ -68,7 +76,7 @@ func NewExpandCommand(options *ExpandCommandOptions) *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("unable to read input: %w", err)
 			}
-			os.Stdout.Write(MarshalToJSON(nodes))
+			nodes = filterHelmReleases(nodes)
 			os.Stderr.Write([]byte("\n"))
 			err = writeResults(os.Stdout, nodes)
 			if err != nil {
