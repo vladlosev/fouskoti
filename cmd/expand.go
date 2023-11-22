@@ -65,6 +65,56 @@ func MarshalToJSON(nodes []*yaml.Node) []byte {
 	return bytes
 }
 
+func expandHelmRelease(
+	releaseNode *yaml.Node,
+	nodes []*yaml.Node,
+) ([]*yaml.Node, error) {
+	releaseNamespace := yamlutil.GetChildStringByPath(
+		releaseNode,
+		[]string{"metadata", "namespace"},
+		"",
+	)
+	apiVersion := yamlutil.GetChildStringByPath(
+		releaseNode,
+		[]string{"spec", "chart", "spec", "sourceRef", "apiVersion"},
+		"",
+	)
+	kind := yamlutil.GetChildStringByPath(
+		releaseNode,
+		[]string{"spec", "chart", "spec", "sourceRef", "kind"},
+		"",
+	)
+	namespace := yamlutil.GetChildStringByPath(
+		releaseNode,
+		[]string{"spec", "chart", "spec", "sourceRef", "namespace"},
+		releaseNamespace,
+	)
+	name := yamlutil.GetChildStringByPath(
+		releaseNode,
+		[]string{"spec", "chart", "spec", "sourceRef", "name"},
+		releaseNamespace,
+	)
+	repositoryNode := yamlutil.FindDocumentByGroupVersionKindNameRef(
+		nodes,
+		apiVersion,
+		kind,
+		namespace,
+		name,
+	)
+	if repositoryNode == nil {
+		return nil, fmt.Errorf(
+			"unable to find repository for Helm release %s/%s",
+			releaseNamespace,
+			yamlutil.GetChildStringByPath(
+				releaseNode,
+				[]string{"metadata", "name"},
+				"",
+			),
+		)
+	}
+	return []*yaml.Node{repositoryNode}, nil
+}
+
 func NewExpandCommand(options *ExpandCommandOptions) *cobra.Command {
 	command := &cobra.Command{
 		Use:   ExpandCommandName,
@@ -72,13 +122,31 @@ func NewExpandCommand(options *ExpandCommandOptions) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			_, logger := getContextAndLogger(cmd)
 			logger.Info("Staring expand command")
-			nodes, err := readInput(os.Stdin)
+			var input io.Reader
+			var err error
+			if len(args) > 0 {
+				input, err = os.Open(args[0])
+				if err != nil {
+					return fmt.Errorf("unable to open input file %s: %w", os.Args[1], err)
+				}
+			} else {
+				input = os.Stdin
+			}
+			nodes, err := readInput(input)
 			if err != nil {
 				return fmt.Errorf("unable to read input: %w", err)
 			}
-			nodes = filterHelmReleases(nodes)
+			releaseNodes := filterHelmReleases(nodes)
+			var resultNodes []*yaml.Node
+			for _, node := range releaseNodes {
+				expandedNodes, err := expandHelmRelease(node, nodes)
+				if err != nil {
+					return fmt.Errorf("unable to expand release: %w", err)
+				}
+				resultNodes = append(resultNodes, expandedNodes...)
+			}
 			os.Stderr.Write([]byte("\n"))
-			err = writeResults(os.Stdout, nodes)
+			err = writeResults(os.Stdout, resultNodes)
 			if err != nil {
 				return fmt.Errorf("unable to marshal to YAML: %w", err)
 			}

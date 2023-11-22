@@ -1,4 +1,4 @@
-package xml
+package yaml
 
 import (
 	"strings"
@@ -48,11 +48,11 @@ func hasScalarChild(
 	})
 }
 
-func hasChildKind(node *yaml.Node, kind string) bool {
+func hasChildAttribute(node *yaml.Node, name string, value string) bool {
 	return hasScalarChild(
 		node,
-		"kind",
-		func(childNode *yaml.Node) bool { return childNode.Value == kind },
+		name,
+		func(childNode *yaml.Node) bool { return childNode.Value == value },
 	)
 }
 
@@ -80,7 +80,7 @@ func FindDocumentsByGroupKind(
 	for _, node := range nodes {
 		node = discardDocumentNode(node)
 
-		if !hasChildKind(node, kind) {
+		if !hasChildAttribute(node, "kind", "HelmRelease") {
 			continue
 		}
 		if !hasChildApiGroup(node, group) {
@@ -101,25 +101,20 @@ func FindDocumentByGroupKindNameRef(
 	for _, node := range nodes {
 		node = discardDocumentNode(node)
 
-		if !hasChildKind(node, kind) {
+		if !hasChildAttribute(node, "kind", kind) {
 			continue
 		}
 		if !hasChildApiGroup(node, group) {
 			continue
 		}
-
 		if !hasChild(node, "metadata", func(metadataNode *yaml.Node) bool {
-			if !hasScalarChild(metadataNode, "namespace", func(childNode *yaml.Node) bool {
-				return childNode.Value == namespace
-			}) {
+			if !hasChildAttribute(metadataNode, "name", name) {
 				return false
 			}
-			if !hasScalarChild(metadataNode, "name", func(childNode *yaml.Node) bool {
-				return childNode.Value == name
-			}) {
-				return false
+			if namespace == "" {
+				return true
 			}
-			return true
+			return hasChildAttribute(metadataNode, "namespace", namespace)
 		}) {
 			continue
 		}
@@ -127,4 +122,38 @@ func FindDocumentByGroupKindNameRef(
 		return node
 	}
 	return nil
+}
+
+func FindDocumentByGroupVersionKindNameRef(
+	nodes []*yaml.Node,
+	apiVersion string,
+	kind string,
+	namespace string,
+	name string,
+) *yaml.Node {
+	for _, node := range nodes {
+		node = discardDocumentNode(node)
+
+		if !hasChildAttribute(node, "kind", kind) {
+			continue
+		}
+		if apiVersion != "" && !hasChildAttribute(node, "apiVersion", apiVersion) {
+			continue
+		}
+		if !hasChild(node, "metadata", func(metadataNode *yaml.Node) bool {
+			if !hasChildAttribute(metadataNode, "name", name) {
+				return false
+			}
+			if namespace == "" {
+				return true
+			}
+			return hasChildAttribute(metadataNode, "namespace", namespace)
+		}) {
+			continue
+		}
+
+		return node
+	}
+	return nil
+
 }
