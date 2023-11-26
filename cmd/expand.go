@@ -2,14 +2,15 @@ package cmd
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
-	"gopkg.in/yaml.v3"
-
-	yamlutil "github.com/vladlosev/hrval/pkg/yaml"
+	"sigs.k8s.io/kustomize/kyaml/kio"
+	"sigs.k8s.io/kustomize/kyaml/yaml"
 )
 
 type ExpandCommandOptions struct {
@@ -17,102 +18,110 @@ type ExpandCommandOptions struct {
 
 const ExpandCommandName = "expand"
 
-func readInput(input io.Reader) ([]*yaml.Node, error) {
-	result := []*yaml.Node{}
-	decoder := yaml.NewDecoder(input)
-	for {
-		node := &yaml.Node{}
-		err := decoder.Decode(node)
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return nil, fmt.Errorf("unable to parse YAML: %w", err)
-		}
-		result = append(result, node)
+func getGroup(node *yaml.RNode) string {
+	apiVersion := node.GetApiVersion()
+	parts := strings.SplitN(apiVersion, "/", 2)
+	if len(parts) != 2 {
+		return ""
+	}
+	return parts[0]
+}
+
+func getStringOrDefault(
+	node *yaml.RNode,
+	fieldSpec string,
+	fieldDescription string,
+	defaultValue string,
+) (string, error) {
+	result, err := node.GetString(fieldSpec)
+	if err != nil && errors.Is(err, yaml.NoFieldError{Field: fieldSpec}) {
+		return defaultValue, nil
+	}
+	if err != nil {
+		return defaultValue, fmt.Errorf("unable to get %s: %w", fieldDescription, err)
 	}
 	return result, nil
 }
 
-func writeResults(output io.Writer, nodes []*yaml.Node) error {
-	for i, node := range nodes {
-		if i != 0 {
-			_, err := output.Write([]byte("---\n"))
-			if err != nil {
-				return fmt.Errorf("unable to write output: %w", err)
-			}
-		}
-		encoder := yaml.NewEncoder(output)
-		encoder.SetIndent(2)
-		err := encoder.Encode(node)
-		if err != nil {
-			return fmt.Errorf("unable to marshal to YAML: %w", err)
+func getRepositoryForHelmRelease(
+	nodes []*yaml.RNode,
+	helmRelease *yaml.RNode,
+) (*yaml.RNode, error) {
+	repoKind, err := helmRelease.GetString("spec.chart.spec.sourceRef.kind")
+	if err != nil {
+		return nil, fmt.Errorf("unable to get kind for the repository: %w", err)
+	}
+
+	repoName, err := helmRelease.GetString("spec.chart.spec.sourceRef.name")
+	if err != nil {
+		return nil, fmt.Errorf("unable to get name for the repository: %w", err)
+	}
+
+	repoNamespace, err := getStringOrDefault(
+		helmRelease,
+		"spec.chart.spec.sourceRef.namespace",
+		"namespace",
+		helmRelease.GetNamespace(),
+	)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"unable to get namespace for the repository: %w",
+			err,
+		)
+	}
+
+	repoApiVersion, err := getStringOrDefault(
+		helmRelease,
+		"spec.chart.spec.sourceRef.apiVersion",
+		"apiVersion",
+		"",
+	)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"unable to get apiVersion for the repository: %w",
+			err,
+		)
+	}
+
+	for _, node := range nodes {
+		if node.GetKind() == repoKind &&
+			node.GetName() == repoName &&
+			node.GetNamespace() == repoNamespace &&
+			(repoApiVersion == "" || node.GetApiVersion() == repoApiVersion) {
+			return node, nil
 		}
 	}
-	return nil
+	return nil, nil
 }
 
-func filterHelmReleases(nodes []*yaml.Node) []*yaml.Node {
-	return yamlutil.FindDocumentsByGroupKind(
-		nodes,
-		"helm.toolkit.fluxcd.io",
-		"HelmRelease",
-	)
+func filterHelmReleases(nodes []*yaml.RNode) ([]*yaml.RNode, error) {
+	helmReleases := []*yaml.RNode{}
+
+	for _, node := range nodes {
+		if getGroup(node) == "helm.toolkit.fluxcd.io" &&
+			node.GetKind() == "HelmRelease" {
+			helmReleases = append(helmReleases, node)
+		}
+	}
+
+	var repositories []*yaml.RNode
+	for _, helmRelease := range helmReleases {
+		repository, err := getRepositoryForHelmRelease(nodes, helmRelease)
+		if err != nil {
+			return nil, fmt.Errorf(
+				"unable to find repository for HelmRelease %s/%s: %w",
+				helmRelease.GetNamespace(),
+				helmRelease.GetName(),
+				err)
+		}
+		repositories = append(repositories, repository)
+	}
+	return repositories, nil
 }
 
 func MarshalToJSON(nodes []*yaml.Node) []byte {
 	bytes, _ := json.MarshalIndent(nodes, "", "  ")
 	return bytes
-}
-
-func expandHelmRelease(
-	releaseNode *yaml.Node,
-	nodes []*yaml.Node,
-) ([]*yaml.Node, error) {
-	releaseNamespace := yamlutil.GetChildStringByPath(
-		releaseNode,
-		[]string{"metadata", "namespace"},
-		"",
-	)
-	apiVersion := yamlutil.GetChildStringByPath(
-		releaseNode,
-		[]string{"spec", "chart", "spec", "sourceRef", "apiVersion"},
-		"",
-	)
-	kind := yamlutil.GetChildStringByPath(
-		releaseNode,
-		[]string{"spec", "chart", "spec", "sourceRef", "kind"},
-		"",
-	)
-	namespace := yamlutil.GetChildStringByPath(
-		releaseNode,
-		[]string{"spec", "chart", "spec", "sourceRef", "namespace"},
-		releaseNamespace,
-	)
-	name := yamlutil.GetChildStringByPath(
-		releaseNode,
-		[]string{"spec", "chart", "spec", "sourceRef", "name"},
-		releaseNamespace,
-	)
-	repositoryNode := yamlutil.FindDocumentByGroupVersionKindNameRef(
-		nodes,
-		apiVersion,
-		kind,
-		namespace,
-		name,
-	)
-	if repositoryNode == nil {
-		return nil, fmt.Errorf(
-			"unable to find repository for Helm release %s/%s",
-			releaseNamespace,
-			yamlutil.GetChildStringByPath(
-				releaseNode,
-				[]string{"metadata", "name"},
-				"",
-			),
-		)
-	}
-	return []*yaml.Node{repositoryNode}, nil
 }
 
 func NewExpandCommand(options *ExpandCommandOptions) *cobra.Command {
@@ -132,25 +141,12 @@ func NewExpandCommand(options *ExpandCommandOptions) *cobra.Command {
 			} else {
 				input = os.Stdin
 			}
-			nodes, err := readInput(input)
-			if err != nil {
-				return fmt.Errorf("unable to read input: %w", err)
-			}
-			releaseNodes := filterHelmReleases(nodes)
-			var resultNodes []*yaml.Node
-			for _, node := range releaseNodes {
-				expandedNodes, err := expandHelmRelease(node, nodes)
-				if err != nil {
-					return fmt.Errorf("unable to expand release: %w", err)
-				}
-				resultNodes = append(resultNodes, expandedNodes...)
-			}
-			os.Stderr.Write([]byte("\n"))
-			err = writeResults(os.Stdout, resultNodes)
-			if err != nil {
-				return fmt.Errorf("unable to marshal to YAML: %w", err)
-			}
-			return nil
+			err = kio.Pipeline{
+				Inputs:  []kio.Reader{&kio.ByteReader{Reader: input}},
+				Filters: []kio.Filter{kio.FilterFunc(filterHelmReleases)},
+				Outputs: []kio.Writer{kio.ByteWriter{Writer: os.Stdout}},
+			}.Execute()
+			return err
 		},
 		SilenceUsage: true,
 	}
