@@ -1,47 +1,23 @@
 package cmd
 
 import (
-	"encoding/json"
-	"errors"
+	"context"
 	"fmt"
 	"io"
 	"os"
-	"strings"
 
 	"github.com/spf13/cobra"
 	"sigs.k8s.io/kustomize/kyaml/kio"
 	"sigs.k8s.io/kustomize/kyaml/yaml"
+
+	"github.com/vladlosev/hrval/pkg/repository"
+	yamlutil "github.com/vladlosev/hrval/pkg/yaml"
 )
 
 type ExpandCommandOptions struct {
 }
 
 const ExpandCommandName = "expand"
-
-func getGroup(node *yaml.RNode) string {
-	apiVersion := node.GetApiVersion()
-	parts := strings.SplitN(apiVersion, "/", 2)
-	if len(parts) != 2 {
-		return ""
-	}
-	return parts[0]
-}
-
-func getStringOrDefault(
-	node *yaml.RNode,
-	fieldSpec string,
-	fieldDescription string,
-	defaultValue string,
-) (string, error) {
-	result, err := node.GetString(fieldSpec)
-	if err != nil && errors.Is(err, yaml.NoFieldError{Field: fieldSpec}) {
-		return defaultValue, nil
-	}
-	if err != nil {
-		return defaultValue, fmt.Errorf("unable to get %s: %w", fieldDescription, err)
-	}
-	return result, nil
-}
 
 func getRepositoryForHelmRelease(
 	nodes []*yaml.RNode,
@@ -57,30 +33,22 @@ func getRepositoryForHelmRelease(
 		return nil, fmt.Errorf("unable to get name for the repository: %w", err)
 	}
 
-	repoNamespace, err := getStringOrDefault(
+	repoNamespace, err := yamlutil.GetStringOr(
 		helmRelease,
 		"spec.chart.spec.sourceRef.namespace",
-		"namespace",
 		helmRelease.GetNamespace(),
 	)
 	if err != nil {
-		return nil, fmt.Errorf(
-			"unable to get namespace for the repository: %w",
-			err,
-		)
+		return nil, err
 	}
 
-	repoApiVersion, err := getStringOrDefault(
+	repoApiVersion, err := yamlutil.GetStringOr(
 		helmRelease,
 		"spec.chart.spec.sourceRef.apiVersion",
-		"apiVersion",
 		"",
 	)
 	if err != nil {
-		return nil, fmt.Errorf(
-			"unable to get apiVersion for the repository: %w",
-			err,
-		)
+		return nil, err
 	}
 
 	for _, node := range nodes {
@@ -94,17 +62,31 @@ func getRepositoryForHelmRelease(
 	return nil, nil
 }
 
-func filterHelmReleases(nodes []*yaml.RNode) ([]*yaml.RNode, error) {
+type releaseRepo struct {
+	release *yaml.RNode
+	repo    *yaml.RNode
+}
+
+type releaseRepoFilter struct {
+	pairs *[]releaseRepo
+}
+
+func newReleaseRepoFilter(pairs *[]releaseRepo) *releaseRepoFilter {
+	return &releaseRepoFilter{pairs: pairs}
+}
+
+func (filter *releaseRepoFilter) Filter(
+	nodes []*yaml.RNode,
+) ([]*yaml.RNode, error) {
 	helmReleases := []*yaml.RNode{}
 
 	for _, node := range nodes {
-		if getGroup(node) == "helm.toolkit.fluxcd.io" &&
+		if yamlutil.GetGroup(node) == "helm.toolkit.fluxcd.io" &&
 			node.GetKind() == "HelmRelease" {
 			helmReleases = append(helmReleases, node)
 		}
 	}
 
-	var repositories []*yaml.RNode
 	for _, helmRelease := range helmReleases {
 		repository, err := getRepositoryForHelmRelease(nodes, helmRelease)
 		if err != nil {
@@ -114,14 +96,48 @@ func filterHelmReleases(nodes []*yaml.RNode) ([]*yaml.RNode, error) {
 				helmRelease.GetName(),
 				err)
 		}
-		repositories = append(repositories, repository)
+		*filter.pairs = append(
+			*filter.pairs,
+			releaseRepo{release: helmRelease, repo: repository},
+		)
 	}
-	return repositories, nil
+	return nodes, nil
 }
 
-func MarshalToJSON(nodes []*yaml.Node) []byte {
-	bytes, _ := json.MarshalIndent(nodes, "", "  ")
-	return bytes
+type releaseRepoRenderer struct {
+	ctx   context.Context
+	pairs *[]releaseRepo
+}
+
+func newReleaseRepoRenderer(
+	ctx context.Context,
+	pairs *[]releaseRepo,
+) *releaseRepoRenderer {
+	return &releaseRepoRenderer{pairs: pairs}
+}
+
+func (renderer *releaseRepoRenderer) Filter(
+	nodes []*yaml.RNode,
+) ([]*yaml.RNode, error) {
+	result := []*yaml.RNode{}
+
+	for _, pair := range *renderer.pairs {
+		expanded, err := repository.ExpandHelmRelease(
+			renderer.ctx,
+			pair.release,
+			pair.repo,
+		)
+		if err != nil {
+			return nil, fmt.Errorf(
+				"unable to expand Helm release %s/%s: %w",
+				pair.release.GetNamespace(),
+				pair.release.GetName(),
+				err,
+			)
+		}
+		nodes = append(nodes, expanded...)
+	}
+	return result, nil
 }
 
 func NewExpandCommand(options *ExpandCommandOptions) *cobra.Command {
@@ -129,7 +145,7 @@ func NewExpandCommand(options *ExpandCommandOptions) *cobra.Command {
 		Use:   ExpandCommandName,
 		Short: "Expands HelmRelease objects into generated templates",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			_, logger := getContextAndLogger(cmd)
+			ctx, logger := getContextAndLogger(cmd)
 			logger.Info("Staring expand command")
 			var input io.Reader
 			var err error
@@ -141,9 +157,13 @@ func NewExpandCommand(options *ExpandCommandOptions) *cobra.Command {
 			} else {
 				input = os.Stdin
 			}
+
+			var pairs []releaseRepo
+			filter1 := newReleaseRepoFilter(&pairs)
+			filter2 := newReleaseRepoRenderer(ctx, &pairs)
 			err = kio.Pipeline{
 				Inputs:  []kio.Reader{&kio.ByteReader{Reader: input}},
-				Filters: []kio.Filter{kio.FilterFunc(filterHelmReleases)},
+				Filters: []kio.Filter{filter1, filter2},
 				Outputs: []kio.Writer{kio.ByteWriter{Writer: os.Stdout}},
 			}.Execute()
 			return err
