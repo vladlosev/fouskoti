@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
+	"path/filepath"
+	"strings"
 
 	helmv2beta1 "github.com/fluxcd/helm-controller/api/v2beta1"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
@@ -30,6 +33,7 @@ func decodeToObject(node *yaml.RNode, out runtime.Object) error {
 // loadRepositoryChart downloads the chart and returns it.
 func loadRepositoryChart(
 	ctx context.Context,
+	logger *slog.Logger,
 	release *helmv2beta1.HelmRelease,
 	repoNode *yaml.RNode,
 ) (*chart.Chart, error) {
@@ -46,7 +50,7 @@ func loadRepositoryChart(
 				err,
 			)
 		}
-		return loadHelmRepositoryChart(ctx, release, &repo)
+		return loadHelmRepositoryChart(ctx, logger, release, &repo)
 	case "GitRepository":
 		var repo sourcev1.GitRepository
 
@@ -85,6 +89,7 @@ func loadRepositoryChart(
 
 func ExpandHelmRelease(
 	ctx context.Context,
+	logger *slog.Logger,
 	releaseNode *yaml.RNode,
 	repoNode *yaml.RNode,
 ) ([]*yaml.RNode, error) {
@@ -107,7 +112,7 @@ func ExpandHelmRelease(
 		)
 	}
 
-	chart, err := loadRepositoryChart(ctx, &release, repoNode)
+	chart, err := loadRepositoryChart(ctx, logger, &release, repoNode)
 	if err != nil {
 		return nil, fmt.Errorf(
 			"unable to load chart for %s %s/%s: %w",
@@ -122,7 +127,7 @@ func ExpandHelmRelease(
 	//	ChartPath: "",
 	//}
 
-	_, err = chartutil.CoalesceValues(chart, release.GetValues())
+	values, err := chartutil.CoalesceValues(chart, release.GetValues())
 	if err != nil {
 		return nil, fmt.Errorf(
 			"unable to coalesce values from the chart for release %s/%s: %w",
@@ -134,6 +139,7 @@ func ExpandHelmRelease(
 
 	capabilities := chartutil.DefaultCapabilities
 	// TODO(vlad): Set k8s version in capabilities.
+
 	metaValues := chartutil.Values{
 		"Release": chartutil.Values{
 			"Name":      release.Spec.ReleaseName,
@@ -144,7 +150,7 @@ func ExpandHelmRelease(
 			"Service":   "Helm",
 		},
 		"Capabilities": capabilities,
-		"Values":       chartutil.Values{}, // values,
+		"Values":       values,
 	}
 	manifests, err := engine.Render(chart, metaValues)
 	if err != nil {
@@ -158,6 +164,12 @@ func ExpandHelmRelease(
 
 	var results []*yaml.RNode
 	for key, manifest := range manifests {
+		if strings.TrimSpace(manifest) == "" {
+			continue
+		}
+		if filepath.Base(key) == "NOTES.txt" {
+			continue
+		}
 		result, err := yaml.Parse(manifest)
 		if err != nil {
 			return nil, fmt.Errorf(
@@ -168,6 +180,7 @@ func ExpandHelmRelease(
 				err,
 			)
 		}
+		result.YNode().HeadComment = fmt.Sprintf("Source: " + key)
 		results = append(results, result)
 	}
 

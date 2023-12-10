@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 
 	"github.com/spf13/cobra"
@@ -105,15 +106,17 @@ func (filter *releaseRepoFilter) Filter(
 }
 
 type releaseRepoRenderer struct {
-	ctx   context.Context
-	pairs *[]releaseRepo
+	ctx    context.Context
+	logger *slog.Logger
+	pairs  *[]releaseRepo
 }
 
 func newReleaseRepoRenderer(
 	ctx context.Context,
+	logger *slog.Logger,
 	pairs *[]releaseRepo,
 ) *releaseRepoRenderer {
-	return &releaseRepoRenderer{pairs: pairs}
+	return &releaseRepoRenderer{ctx: ctx, logger: logger, pairs: pairs}
 }
 
 func (renderer *releaseRepoRenderer) Filter(
@@ -124,6 +127,7 @@ func (renderer *releaseRepoRenderer) Filter(
 	for _, pair := range *renderer.pairs {
 		expanded, err := repository.ExpandHelmRelease(
 			renderer.ctx,
+			renderer.logger,
 			pair.release,
 			pair.repo,
 		)
@@ -135,9 +139,9 @@ func (renderer *releaseRepoRenderer) Filter(
 				err,
 			)
 		}
-		nodes = append(nodes, expanded...)
+		result = append(result, expanded...)
 	}
-	return result, nil
+	return append(nodes, result...), nil
 }
 
 func NewExpandCommand(options *ExpandCommandOptions) *cobra.Command {
@@ -160,7 +164,7 @@ func NewExpandCommand(options *ExpandCommandOptions) *cobra.Command {
 
 			var pairs []releaseRepo
 			filter1 := newReleaseRepoFilter(&pairs)
-			filter2 := newReleaseRepoRenderer(ctx, &pairs)
+			filter2 := newReleaseRepoRenderer(ctx, logger, &pairs)
 			err = kio.Pipeline{
 				Inputs:  []kio.Reader{&kio.ByteReader{Reader: input}},
 				Filters: []kio.Filter{filter1, filter2},
