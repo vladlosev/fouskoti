@@ -11,7 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	helmv2beta1 "github.com/fluxcd/helm-controller/api/v2beta1"
+	helmv2beta2 "github.com/fluxcd/helm-controller/api/v2beta2"
 	sourcev1beta2 "github.com/fluxcd/source-controller/api/v1beta2"
 	"helm.sh/helm/v3/pkg/chart"
 	"helm.sh/helm/v3/pkg/chartutil"
@@ -140,7 +140,7 @@ func getCachePathForRepo(cacheRoot string, repoURL string) (string, error) {
 func loadRepositoryChart(
 	ctx context.Context,
 	logger *slog.Logger,
-	release *helmv2beta1.HelmRelease,
+	release *helmv2beta2.HelmRelease,
 	repoNode *yaml.RNode,
 ) (*chart.Chart, error) {
 	cacheRoot, err := os.MkdirTemp("", "chart-repo-cache-")
@@ -216,7 +216,7 @@ func ExpandHelmRelease(
 	releaseNode *yaml.RNode,
 	repoNode *yaml.RNode,
 ) ([]*yaml.RNode, error) {
-	var release helmv2beta1.HelmRelease
+	var release helmv2beta2.HelmRelease
 	var repo sourcev1beta2.HelmRepository
 
 	err := decodeToObject(repoNode, &repo)
