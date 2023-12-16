@@ -12,7 +12,6 @@ import (
 	"strings"
 
 	helmv2beta2 "github.com/fluxcd/helm-controller/api/v2beta2"
-	sourcev1beta2 "github.com/fluxcd/source-controller/api/v1beta2"
 	"helm.sh/helm/v3/pkg/chart"
 	"helm.sh/helm/v3/pkg/chartutil"
 	"helm.sh/helm/v3/pkg/engine"
@@ -217,21 +216,19 @@ func ExpandHelmRelease(
 	repoNode *yaml.RNode,
 ) ([]*yaml.RNode, error) {
 	var release helmv2beta2.HelmRelease
-	var repo sourcev1beta2.HelmRepository
-
-	err := decodeToObject(repoNode, &repo)
-	if err != nil {
-		return nil, fmt.Errorf(
-			"unable to decode HelmRepository: %w",
-			err,
-		)
-	}
-
-	err = decodeToObject(releaseNode, &release)
+	err := decodeToObject(releaseNode, &release)
 	if err != nil {
 		return nil, fmt.Errorf(
 			"unable to decode HelmRelease: %w",
 			err,
+		)
+	}
+
+	if repoNode == nil {
+		return nil, fmt.Errorf(
+			"missing chart repository for Helm release %s/%s",
+			release.Namespace,
+			release.Name,
 		)
 	}
 
