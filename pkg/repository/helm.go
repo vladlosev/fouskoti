@@ -1,15 +1,11 @@
 package repository
 
 import (
-	"context"
 	"fmt"
-	"log/slog"
 	"net/url"
-	"os"
 	"path"
 	"strings"
 
-	helmv2beta1 "github.com/fluxcd/helm-controller/api/v2beta1"
 	sourcev1beta2 "github.com/fluxcd/source-controller/api/v1beta2"
 	"helm.sh/helm/v3/pkg/chart"
 	helmloader "helm.sh/helm/v3/pkg/chart/loader"
@@ -17,6 +13,7 @@ import (
 	helmgetter "helm.sh/helm/v3/pkg/getter"
 	"helm.sh/helm/v3/pkg/registry"
 	helmrepo "helm.sh/helm/v3/pkg/repo"
+	"sigs.k8s.io/kustomize/kyaml/yaml"
 )
 
 // normalizeURL normalizes a ChartRepository URL by its scheme.
@@ -46,52 +43,30 @@ func normalizeURL(repositoryURL string) (string, error) {
 
 // TODO(vlad): Add caching support.
 
-func loadHelmRepositoryChart(
-	ctx context.Context,
-	logger *slog.Logger,
-	release *helmv2beta1.HelmRelease,
-	repo *sourcev1beta2.HelmRepository,
-) (*chart.Chart, error) {
-	cacheRoot, err := os.MkdirTemp("", "helm-repo-")
-	if err != nil {
-		return nil, fmt.Errorf("unable to create a temp dir for Helm repo: %w", err)
-	}
-	defer os.RemoveAll(cacheRoot) // TODO(vlad): Find way to persist the cache.
-
-	loader := &helmRepoChartLoader{
-		logger:    logger,
-		cacheRoot: cacheRoot,
-	}
-	return loader.loadHelmRepositoryChart(ctx, release, repo)
-}
-
 type helmRepoChartLoader struct {
-	logger    *slog.Logger
-	cacheRoot string
+	loaderConfig
 }
 
-func (loader *helmRepoChartLoader) getCachePathForRepo(
-	repoURL string,
-) (string, error) {
-	parsedURL, err := url.Parse(repoURL)
-	if err != nil {
-		return "", fmt.Errorf("unable to parse repository URL %s: %w", repoURL, err)
-	}
-	urlPath := strings.TrimSuffix(parsedURL.Path, "/")
-	var repoPath string
-	if urlPath == "" {
-		repoPath = parsedURL.Host
-	} else {
-		repoPath = fmt.Sprintf("%s-%s", parsedURL.Host, urlPath)
-	}
-	return path.Join(loader.cacheRoot, repoPath), nil
+func newHelmRepositoryLoader(config loaderConfig) repositoryLoader {
+	return &helmRepoChartLoader{loaderConfig: config}
 }
 
-func (loader *helmRepoChartLoader) loadHelmRepositoryChart(
-	ctx context.Context,
-	release *helmv2beta1.HelmRelease,
-	repo *sourcev1beta2.HelmRepository,
+func (loader *helmRepoChartLoader) loadRepositoryChart(
+	repoNode *yaml.RNode,
+	chartName string,
+	chartVersion string,
 ) (*chart.Chart, error) {
+	var repo sourcev1beta2.HelmRepository
+	err := decodeToObject(repoNode, &repo)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"unable to decode HelmRepository %s/%s: %w",
+			repoNode.GetNamespace(),
+			repoNode.GetName(),
+			err,
+		)
+	}
+
 	normalizedURL, err := normalizeURL(repo.Spec.URL)
 	if err != nil {
 		return nil, fmt.Errorf(
@@ -101,36 +76,35 @@ func (loader *helmRepoChartLoader) loadHelmRepositoryChart(
 		)
 	}
 
-	repoPath, err := loader.getCachePathForRepo(normalizedURL)
-	if err != nil {
-		return nil, fmt.Errorf(
-			"unable to get cache path for Helm repository %s: %w",
-			normalizedURL,
-			err,
-		)
-	}
-
-	return loader.loadHelmChartByURL(
+	return loader.loadChartByURL(
 		normalizedURL,
-		repoPath,
-		release.Spec.Chart.Spec.Chart,
-		release.Spec.Chart.Spec.Version,
+		chartName,
+		chartVersion,
 	)
 }
 
-func (loader *helmRepoChartLoader) loadHelmChartByURL(
+func (loader *helmRepoChartLoader) loadChartByURL(
 	repoURL string,
-	repoPath string,
-	name string,
-	version string,
+	chartName string,
+	chartVersion string,
 ) (*chart.Chart, error) {
 	loader.logger.
 		With(
 			"repoURL", repoURL,
-			"name", name,
-			"version", version,
+			"name", chartName,
+			"version", chartVersion,
 		).
 		Debug("Loading chart from Helm repository")
+
+	repoPath, err := getCachePathForRepo(loader.cacheRoot, repoURL)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"unable to get cache path for Helm repository %s: %w",
+			repoURL,
+			err,
+		)
+	}
+
 	getters := helmgetter.All(&cli.EnvSettings{})
 	chartRepo, err := helmrepo.NewChartRepository(
 		&helmrepo.Entry{
@@ -162,22 +136,22 @@ func (loader *helmRepoChartLoader) loadHelmChartByURL(
 		)
 	}
 	chartRepo.IndexFile = repoIndex
-	chartVersion, err := repoIndex.Get(name, version)
+	version, err := repoIndex.Get(chartName, chartVersion)
 	if err != nil {
 		return nil, fmt.Errorf(
 			"unable to get chart %s/%s from Helm repository %s: %w",
-			name,
-			version,
+			chartName,
+			chartVersion,
 			repoURL,
 			err,
 		)
 	}
 
-	parsedURL, err := url.Parse(chartVersion.URLs[0])
+	parsedURL, err := url.Parse(version.URLs[0])
 	if err != nil {
 		return nil, fmt.Errorf(
 			"unable to parse chart URL %s: %w",
-			chartVersion.URLs[0],
+			version.URLs[0],
 			err,
 		)
 	}
@@ -187,7 +161,7 @@ func (loader *helmRepoChartLoader) loadHelmChartByURL(
 		return nil, fmt.Errorf(
 			"unknown scheme %s for chart %s: %w",
 			parsedURL.Scheme,
-			chartVersion.URLs[0],
+			version.URLs[0],
 			err,
 		)
 	}
@@ -207,17 +181,17 @@ func (loader *helmRepoChartLoader) loadHelmChartByURL(
 	if err != nil {
 		return nil, fmt.Errorf(
 			"unable to load chart %s/%s in %s: %w",
-			name,
-			version,
+			chartName,
+			chartVersion,
 			repoURL,
 			err,
 		)
 	}
-	err = loader.loadChartDependencies(chart)
+	err = loadChartDependencies(loader.loaderConfig, chart)
 	if err != nil {
 		return nil, fmt.Errorf(
 			"unable to load chart dependencies for %s/%s in %s: %w",
-			name,
+			chartName,
 			chart.Metadata.Version,
 			repoURL,
 			err,
@@ -227,53 +201,9 @@ func (loader *helmRepoChartLoader) loadHelmChartByURL(
 	loader.logger.
 		With(
 			"repoURL", repoURL,
-			"name", name,
+			"name", chartName,
 			"version", chart.Metadata.Version,
 		).
 		Debug("Finished loading chart")
 	return chart, nil
-}
-
-func (loader *helmRepoChartLoader) loadChartDependencies(
-	chart *chart.Chart,
-) error {
-	for _, dependency := range chart.Metadata.Dependencies {
-		repoURL, err := normalizeURL(dependency.Repository)
-		if err != nil {
-			return fmt.Errorf(
-				"unable to normalize URL for dependency chart %s/%s: %w",
-				dependency.Name,
-				dependency.Version,
-				err,
-			)
-		}
-
-		repoPath, err := loader.getCachePathForRepo(repoURL)
-		if err != nil {
-			return fmt.Errorf(
-				"unable to get cache path for Helm repository %s: %w",
-				repoURL,
-				err,
-			)
-		}
-
-		dependencyChart, err := loader.loadHelmChartByURL(
-			repoURL,
-			repoPath,
-			dependency.Name,
-			dependency.Version,
-		)
-		if err != nil {
-			return fmt.Errorf(
-				"unable to load chart %s/%s from %s (a dependency of %s): %w",
-				dependency.Name,
-				dependency.Version,
-				repoURL,
-				chart.Name(),
-				err,
-			)
-		}
-		chart.AddDependency(dependencyChart)
-	}
-	return nil
 }
