@@ -220,6 +220,7 @@ func loadChartDependencies(config loaderConfig, chart *chart.Chart) error {
 	}
 	return nil
 }
+
 func ExpandHelmRelease(
 	ctx context.Context,
 	logger *slog.Logger,
