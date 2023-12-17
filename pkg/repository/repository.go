@@ -32,10 +32,13 @@ type repositoryLoader interface {
 	) (*chart.Chart, error)
 }
 
+type Credentials map[string]map[string][]byte
+
 type loaderConfig struct {
-	ctx       context.Context
-	logger    *slog.Logger
-	cacheRoot string
+	ctx         context.Context
+	logger      *slog.Logger
+	cacheRoot   string
+	credentials Credentials
 }
 
 type repositoryLoaderFactory func(config loaderConfig) repositoryLoader
@@ -73,7 +76,11 @@ func getRepoFactoryByURL(repoURL string) (repositoryLoaderFactory, error) {
 
 	switch parsedURL.Scheme {
 	case "https", "http":
-		result = newHelmRepositoryLoader
+		if parsedURL.User.Username() == "git" {
+			result = newGitRepositoryLoader
+		} else {
+			result = newHelmRepositoryLoader
+		}
 	case "ssh":
 		result = newGitRepositoryLoader
 	case "oci":
@@ -139,6 +146,7 @@ func getCachePathForRepo(cacheRoot string, repoURL string) (string, error) {
 func loadRepositoryChart(
 	ctx context.Context,
 	logger *slog.Logger,
+	credentials Credentials,
 	release *helmv2beta2.HelmRelease,
 	repoNode *yaml.RNode,
 ) (*chart.Chart, error) {
@@ -154,7 +162,10 @@ func loadRepositoryChart(
 	}
 	defer os.RemoveAll(cacheRoot) // TODO(vlad): Find way to persist the cache.
 
-	loader, err := getLoaderForRepo(repoNode, loaderConfig{ctx, logger, cacheRoot})
+	loader, err := getLoaderForRepo(
+		repoNode,
+		loaderConfig{ctx, logger, cacheRoot, credentials},
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -212,6 +223,7 @@ func loadChartDependencies(config loaderConfig, chart *chart.Chart) error {
 func ExpandHelmRelease(
 	ctx context.Context,
 	logger *slog.Logger,
+	credentials Credentials,
 	releaseNode *yaml.RNode,
 	repoNode *yaml.RNode,
 ) ([]*yaml.RNode, error) {
@@ -232,7 +244,7 @@ func ExpandHelmRelease(
 		)
 	}
 
-	chart, err := loadRepositoryChart(ctx, logger, &release, repoNode)
+	chart, err := loadRepositoryChart(ctx, logger, credentials, &release, repoNode)
 	if err != nil {
 		return nil, fmt.Errorf(
 			"unable to load chart for %s %s/%s: %w",

@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -16,6 +17,7 @@ import (
 )
 
 type ExpandCommandOptions struct {
+	credentialsFileName string
 }
 
 const ExpandCommandName = "expand"
@@ -106,17 +108,24 @@ func (filter *releaseRepoFilter) Filter(
 }
 
 type releaseRepoRenderer struct {
-	ctx    context.Context
-	logger *slog.Logger
-	pairs  *[]releaseRepo
+	ctx         context.Context
+	logger      *slog.Logger
+	credentials repository.Credentials
+	pairs       *[]releaseRepo
 }
 
 func newReleaseRepoRenderer(
 	ctx context.Context,
 	logger *slog.Logger,
+	credentials repository.Credentials,
 	pairs *[]releaseRepo,
 ) *releaseRepoRenderer {
-	return &releaseRepoRenderer{ctx: ctx, logger: logger, pairs: pairs}
+	return &releaseRepoRenderer{
+		ctx:         ctx,
+		logger:      logger,
+		credentials: credentials,
+		pairs:       pairs,
+	}
 }
 
 func (renderer *releaseRepoRenderer) Filter(
@@ -128,6 +137,7 @@ func (renderer *releaseRepoRenderer) Filter(
 		expanded, err := repository.ExpandHelmRelease(
 			renderer.ctx,
 			renderer.logger,
+			renderer.credentials,
 			pair.release,
 			pair.repo,
 		)
@@ -144,6 +154,13 @@ func (renderer *releaseRepoRenderer) Filter(
 	return append(nodes, result...), nil
 }
 
+func appendDocSeparator(inputs []io.Reader) []io.Reader {
+	if len(inputs) > 0 {
+		inputs = append(inputs, bytes.NewBufferString("\n---\n"))
+	}
+	return inputs
+}
+
 func NewExpandCommand(options *ExpandCommandOptions) *cobra.Command {
 	command := &cobra.Command{
 		Use:   ExpandCommandName,
@@ -151,22 +168,60 @@ func NewExpandCommand(options *ExpandCommandOptions) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx, logger := getContextAndLogger(cmd)
 			logger.Info("Staring expand command")
-			var input io.Reader
+			var inputs []io.Reader
 			var err error
-			if len(args) > 0 {
-				input, err = os.Open(args[0])
-				if err != nil {
-					return fmt.Errorf("unable to open input file %s: %w", os.Args[1], err)
+			for _, arg := range args {
+				if arg == "-" {
+					inputs = append(inputs, os.Stdin)
+				} else {
+					inputs = appendDocSeparator(inputs)
+					file, err := os.Open(arg)
+					if err != nil {
+						return fmt.Errorf("unable to open input file %s: %w", arg, err)
+					}
+					defer file.Close()
+					inputs = appendDocSeparator(inputs)
+					inputs = append(inputs, file)
 				}
-			} else {
-				input = os.Stdin
+			}
+
+			stringCreds := map[string]map[string]string{}
+			credentials := repository.Credentials{}
+
+			if options.credentialsFileName != "" {
+				creds, err := os.ReadFile(options.credentialsFileName)
+				if err != nil {
+					return fmt.Errorf(
+						"unable to open credentials file %s: %w",
+						options.credentialsFileName,
+						err,
+					)
+				}
+				err = yaml.Unmarshal(creds, stringCreds)
+				if err != nil {
+					return fmt.Errorf(
+						"unable to parse credentials file %s as YAML: %w",
+						options.credentialsFileName,
+						err,
+					)
+				}
+
+				for repo, items := range stringCreds {
+					credsItem := map[string][]byte{}
+					for name, content := range items {
+						credsItem[name] = []byte(content)
+					}
+					credentials[repo] = credsItem
+				}
 			}
 
 			var pairs []releaseRepo
 			filter1 := newReleaseRepoFilter(&pairs)
-			filter2 := newReleaseRepoRenderer(ctx, logger, &pairs)
+			filter2 := newReleaseRepoRenderer(ctx, logger, credentials, &pairs)
 			err = kio.Pipeline{
-				Inputs:  []kio.Reader{&kio.ByteReader{Reader: input}},
+				Inputs: []kio.Reader{&kio.ByteReader{
+					Reader: io.MultiReader(inputs...),
+				}},
 				Filters: []kio.Filter{filter1, filter2},
 				Outputs: []kio.Writer{kio.ByteWriter{Writer: os.Stdout}},
 			}.Execute()
@@ -174,5 +229,13 @@ func NewExpandCommand(options *ExpandCommandOptions) *cobra.Command {
 		},
 		SilenceUsage: true,
 	}
+	command.PersistentFlags().StringVarP(
+		&options.credentialsFileName,
+		"credentials-file",
+		"",
+		"",
+		"Name of the repository credentials file",
+	)
+
 	return command
 }
