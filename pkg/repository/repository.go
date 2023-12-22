@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/url"
 	"os"
@@ -16,7 +17,10 @@ import (
 	"helm.sh/helm/v3/pkg/chartutil"
 	"helm.sh/helm/v3/pkg/engine"
 	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/kustomize/kyaml/kio"
 	"sigs.k8s.io/kustomize/kyaml/yaml"
+
+	yamlutil "github.com/vladlosev/hrval/pkg/yaml"
 )
 
 type repositoryLoader interface {
@@ -221,7 +225,7 @@ func loadChartDependencies(config loaderConfig, chart *chart.Chart) error {
 	return nil
 }
 
-func ExpandHelmRelease(
+func expandHelmRelease(
 	ctx context.Context,
 	logger *slog.Logger,
 	credentials Credentials,
@@ -269,19 +273,32 @@ func ExpandHelmRelease(
 	capabilities := chartutil.DefaultCapabilities
 	// TODO(vlad): Set k8s version in capabilities.
 
-	metaValues := chartutil.Values{
-		"Release": chartutil.Values{
-			"Name":      release.Spec.ReleaseName,
-			"Namespace": release.Namespace,
-			"IsUpgrade": false,
-			"IsInstall": true,
-			"Revision":  1,
-			"Service":   "Helm",
-		},
-		"Capabilities": capabilities,
-		"Values":       values,
+	targetNamespace := release.Spec.TargetNamespace
+	if targetNamespace == "" {
+		targetNamespace = release.Namespace
 	}
-	manifests, err := engine.Render(chart, metaValues)
+	releaseName := release.Spec.ReleaseName
+	if releaseName == "" {
+		releaseName = fmt.Sprintf("%s-%s", targetNamespace, release.Name)
+	}
+
+	options := chartutil.ReleaseOptions{
+		Name:      releaseName,
+		Namespace: targetNamespace,
+		Revision:  1,
+		IsInstall: true,
+		IsUpgrade: false,
+	}
+	valuesToRender, err := chartutil.ToRenderValues(chart, values, options, capabilities)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"unable to compose values to render Helm release %s/%s: %w",
+			release.Namespace,
+			release.Name,
+			err,
+		)
+	}
+	manifests, err := engine.Render(chart, valuesToRender)
 	if err != nil {
 		return nil, fmt.Errorf(
 			"unable to render values for Helm release %s/%s: %w",
@@ -314,4 +331,154 @@ func ExpandHelmRelease(
 	}
 
 	return results, nil
+}
+
+func getRepositoryForHelmRelease(
+	nodes []*yaml.RNode,
+	helmRelease *yaml.RNode,
+) (*yaml.RNode, error) {
+	repoKind, err := helmRelease.GetString("spec.chart.spec.sourceRef.kind")
+	if err != nil {
+		return nil, fmt.Errorf("unable to get kind for the repository: %w", err)
+	}
+
+	repoName, err := helmRelease.GetString("spec.chart.spec.sourceRef.name")
+	if err != nil {
+		return nil, fmt.Errorf("unable to get name for the repository: %w", err)
+	}
+
+	repoNamespace, err := yamlutil.GetStringOr(
+		helmRelease,
+		"spec.chart.spec.sourceRef.namespace",
+		helmRelease.GetNamespace(),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	repoApiVersion, err := yamlutil.GetStringOr(
+		helmRelease,
+		"spec.chart.spec.sourceRef.apiVersion",
+		"",
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, node := range nodes {
+		if node.GetKind() == repoKind &&
+			node.GetName() == repoName &&
+			node.GetNamespace() == repoNamespace &&
+			(repoApiVersion == "" || node.GetApiVersion() == repoApiVersion) {
+			return node, nil
+		}
+	}
+	return nil, nil
+}
+
+type releaseRepo struct {
+	release *yaml.RNode
+	repo    *yaml.RNode
+}
+
+type releaseRepoFilter struct {
+	pairs *[]releaseRepo
+}
+
+func newReleaseRepoFilter(pairs *[]releaseRepo) *releaseRepoFilter {
+	return &releaseRepoFilter{pairs: pairs}
+}
+
+func (filter *releaseRepoFilter) Filter(
+	nodes []*yaml.RNode,
+) ([]*yaml.RNode, error) {
+	helmReleases := []*yaml.RNode{}
+
+	for _, node := range nodes {
+		if yamlutil.GetGroup(node) == "helm.toolkit.fluxcd.io" &&
+			node.GetKind() == "HelmRelease" {
+			helmReleases = append(helmReleases, node)
+		}
+	}
+
+	for _, helmRelease := range helmReleases {
+		repository, err := getRepositoryForHelmRelease(nodes, helmRelease)
+		if err != nil {
+			return nil, fmt.Errorf(
+				"unable to find repository for HelmRelease %s/%s: %w",
+				helmRelease.GetNamespace(),
+				helmRelease.GetName(),
+				err)
+		}
+		*filter.pairs = append(
+			*filter.pairs,
+			releaseRepo{release: helmRelease, repo: repository},
+		)
+	}
+	return nodes, nil
+}
+
+type releaseRepoRenderer struct {
+	ctx         context.Context
+	logger      *slog.Logger
+	credentials Credentials
+	pairs       *[]releaseRepo
+}
+
+func newReleaseRepoRenderer(
+	ctx context.Context,
+	logger *slog.Logger,
+	credentials Credentials,
+	pairs *[]releaseRepo,
+) *releaseRepoRenderer {
+	return &releaseRepoRenderer{
+		ctx:         ctx,
+		logger:      logger,
+		credentials: credentials,
+		pairs:       pairs,
+	}
+}
+
+func (renderer *releaseRepoRenderer) Filter(
+	nodes []*yaml.RNode,
+) ([]*yaml.RNode, error) {
+	result := []*yaml.RNode{}
+
+	for _, pair := range *renderer.pairs {
+		expanded, err := expandHelmRelease(
+			renderer.ctx,
+			renderer.logger,
+			renderer.credentials,
+			pair.release,
+			pair.repo,
+		)
+		if err != nil {
+			return nil, fmt.Errorf(
+				"unable to expand Helm release %s/%s: %w",
+				pair.release.GetNamespace(),
+				pair.release.GetName(),
+				err,
+			)
+		}
+		result = append(result, expanded...)
+	}
+	return append(nodes, result...), nil
+}
+
+func ExpandHelmReleases(
+	ctx context.Context,
+	logger *slog.Logger,
+	credentials Credentials,
+	input io.Reader,
+	output io.Writer,
+) error {
+	var pairs []releaseRepo
+	filter1 := newReleaseRepoFilter(&pairs)
+	filter2 := newReleaseRepoRenderer(ctx, logger, credentials, &pairs)
+
+	return kio.Pipeline{
+		Inputs:  []kio.Reader{&kio.ByteReader{Reader: input}},
+		Filters: []kio.Filter{filter1, filter2},
+		Outputs: []kio.Writer{kio.ByteWriter{Writer: output}},
+	}.Execute()
 }
