@@ -6,6 +6,8 @@ import (
 	"io"
 	"os"
 
+	"github.com/fluxcd/pkg/git"
+	"github.com/fluxcd/pkg/git/gogit"
 	"github.com/spf13/cobra"
 	"sigs.k8s.io/kustomize/kyaml/yaml"
 
@@ -78,9 +80,18 @@ func NewExpandCommand(options *ExpandCommandOptions) *cobra.Command {
 				}
 			}
 
-			return repository.ExpandHelmReleases(
+			expander := repository.NewHelmReleaseExpander(
 				ctx,
 				logger,
+				func(
+					path string,
+					authOpts *git.AuthOptions,
+					clientOpts ...gogit.ClientOption,
+				) (repository.GitClientInterface, error) {
+					return gogit.NewClient(path, authOpts, clientOpts...)
+				},
+			)
+			return expander.ExpandHelmReleases(
 				credentials,
 				io.MultiReader(inputs...),
 				os.Stdout,

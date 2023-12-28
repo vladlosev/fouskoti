@@ -13,6 +13,9 @@ import (
 	"strings"
 
 	helmv2beta2 "github.com/fluxcd/helm-controller/api/v2beta2"
+	"github.com/fluxcd/pkg/git"
+	"github.com/fluxcd/pkg/git/gogit"
+	"github.com/fluxcd/pkg/git/repository"
 	"helm.sh/helm/v3/pkg/chart"
 	"helm.sh/helm/v3/pkg/chartutil"
 	"helm.sh/helm/v3/pkg/engine"
@@ -38,11 +41,26 @@ type repositoryLoader interface {
 
 type Credentials map[string]map[string][]byte
 
+type GitClientInterface interface {
+	Clone(
+		ctx context.Context,
+		repoURL string,
+		config repository.CloneConfig,
+	) (*git.Commit, error)
+}
+
+type gitClientFactoryFunc func(
+	path string,
+	authOpts *git.AuthOptions,
+	clientOpts ...gogit.ClientOption,
+) (GitClientInterface, error)
+
 type loaderConfig struct {
-	ctx         context.Context
-	logger      *slog.Logger
-	cacheRoot   string
-	credentials Credentials
+	ctx              context.Context
+	logger           *slog.Logger
+	gitClientFactory gitClientFactoryFunc
+	cacheRoot        string
+	credentials      Credentials
 }
 
 type repositoryLoaderFactory func(config loaderConfig) repositoryLoader
@@ -150,6 +168,7 @@ func getCachePathForRepo(cacheRoot string, repoURL string) (string, error) {
 func loadRepositoryChart(
 	ctx context.Context,
 	logger *slog.Logger,
+	gitClientFactory gitClientFactoryFunc,
 	credentials Credentials,
 	release *helmv2beta2.HelmRelease,
 	repoNode *yaml.RNode,
@@ -168,7 +187,7 @@ func loadRepositoryChart(
 
 	loader, err := getLoaderForRepo(
 		repoNode,
-		loaderConfig{ctx, logger, cacheRoot, credentials},
+		loaderConfig{ctx, logger, gitClientFactory, cacheRoot, credentials},
 	)
 	if err != nil {
 		return nil, err
@@ -228,6 +247,7 @@ func loadChartDependencies(config loaderConfig, chart *chart.Chart) error {
 func expandHelmRelease(
 	ctx context.Context,
 	logger *slog.Logger,
+	gitClientFactory gitClientFactoryFunc,
 	credentials Credentials,
 	releaseNode *yaml.RNode,
 	repoNode *yaml.RNode,
@@ -249,7 +269,14 @@ func expandHelmRelease(
 		)
 	}
 
-	chart, err := loadRepositoryChart(ctx, logger, credentials, &release, repoNode)
+	chart, err := loadRepositoryChart(
+		ctx,
+		logger,
+		gitClientFactory,
+		credentials,
+		&release,
+		repoNode,
+	)
 	if err != nil {
 		return nil, fmt.Errorf(
 			"unable to load chart for %s %s/%s: %w",
@@ -419,23 +446,26 @@ func (filter *releaseRepoFilter) Filter(
 }
 
 type releaseRepoRenderer struct {
-	ctx         context.Context
-	logger      *slog.Logger
-	credentials Credentials
-	pairs       *[]releaseRepo
+	ctx              context.Context
+	logger           *slog.Logger
+	gitClientFactory gitClientFactoryFunc
+	credentials      Credentials
+	pairs            *[]releaseRepo
 }
 
 func newReleaseRepoRenderer(
 	ctx context.Context,
 	logger *slog.Logger,
+	gitClientFactory gitClientFactoryFunc,
 	credentials Credentials,
 	pairs *[]releaseRepo,
 ) *releaseRepoRenderer {
 	return &releaseRepoRenderer{
-		ctx:         ctx,
-		logger:      logger,
-		credentials: credentials,
-		pairs:       pairs,
+		ctx:              ctx,
+		logger:           logger,
+		gitClientFactory: gitClientFactory,
+		credentials:      credentials,
+		pairs:            pairs,
 	}
 }
 
@@ -448,6 +478,7 @@ func (renderer *releaseRepoRenderer) Filter(
 		expanded, err := expandHelmRelease(
 			renderer.ctx,
 			renderer.logger,
+			renderer.gitClientFactory,
 			renderer.credentials,
 			pair.release,
 			pair.repo,
@@ -465,16 +496,38 @@ func (renderer *releaseRepoRenderer) Filter(
 	return append(nodes, result...), nil
 }
 
-func ExpandHelmReleases(
+type HelmReleaseExpander struct {
+	ctx              context.Context
+	logger           *slog.Logger
+	gitClientFactory gitClientFactoryFunc
+}
+
+func NewHelmReleaseExpander(
 	ctx context.Context,
 	logger *slog.Logger,
+	gitClientFactory gitClientFactoryFunc,
+) *HelmReleaseExpander {
+	return &HelmReleaseExpander{
+		ctx:              ctx,
+		logger:           logger,
+		gitClientFactory: gitClientFactory,
+	}
+}
+
+func (expander *HelmReleaseExpander) ExpandHelmReleases(
 	credentials Credentials,
 	input io.Reader,
 	output io.Writer,
 ) error {
 	var pairs []releaseRepo
 	filter1 := newReleaseRepoFilter(&pairs)
-	filter2 := newReleaseRepoRenderer(ctx, logger, credentials, &pairs)
+	filter2 := newReleaseRepoRenderer(
+		expander.ctx,
+		expander.logger,
+		expander.gitClientFactory,
+		credentials,
+		&pairs,
+	)
 
 	return kio.Pipeline{
 		Inputs:  []kio.Reader{&kio.ByteReader{Reader: input}},

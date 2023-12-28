@@ -91,7 +91,7 @@ func (loader *gitRepoChartLoader) loadRepositoryChart(
 		timeout = specTimeout.Duration
 	}
 
-	client, err := gogit.NewClient(repoPath, authOpts, clientOpts...)
+	client, err := loader.gitClientFactory(repoPath, authOpts, clientOpts...)
 	if err != nil {
 		return nil, fmt.Errorf(
 			"unable to create Git client to clone repository %s: %w",
