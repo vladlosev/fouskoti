@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -68,15 +69,39 @@ type repositoryLoaderFactory func(config loaderConfig) repositoryLoader
 func getRepoFactory(
 	repoNode *yaml.RNode,
 ) (repositoryLoaderFactory, error) {
-	var result repositoryLoaderFactory
-
 	switch repoNode.GetKind() {
 	case "HelmRepository":
-		result = newHelmRepositoryLoader
+		repoTypeIf, err := repoNode.GetFieldValue("spec.type")
+		if errors.Is(err, yaml.NoFieldError{Field: "spec.type"}) {
+			return newHelmRepositoryLoader, nil
+		}
+		if err != nil {
+			return nil, fmt.Errorf(
+				"error retrieving spec.type for %s %s/%s: %v",
+				repoNode.GetKind(),
+				repoNode.GetNamespace(),
+				repoNode.GetName(),
+				err,
+			)
+		}
+		repoType, ok := repoTypeIf.(string)
+		if !ok {
+			return nil, fmt.Errorf(
+				"invalid value for spec.type for %s %s/%s: %v",
+				repoNode.GetKind(),
+				repoNode.GetNamespace(),
+				repoNode.GetName(),
+				repoTypeIf,
+			)
+		}
+		if repoType != "oci" {
+			return newHelmRepositoryLoader, nil
+		}
+		return newOciRepositoryLoader, nil
 	case "GitRepository":
-		result = newGitRepositoryLoader
+		return newGitRepositoryLoader, nil
 	case "OCIRepository":
-		result = newOciRepositoryLoader
+		return newOciRepositoryLoader, nil
 	default:
 		return nil, fmt.Errorf(
 			"unknown kind %s for repository %s/%s",
@@ -85,7 +110,6 @@ func getRepoFactory(
 			repoNode.GetName(),
 		)
 	}
-	return result, nil
 }
 
 func getRepoFactoryByURL(repoURL string) (repositoryLoaderFactory, error) {
