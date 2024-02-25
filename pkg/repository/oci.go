@@ -125,27 +125,24 @@ func (loader *ociRepoChartLoader) getChartVersion(
 	chartName string,
 	chartVersion string,
 ) (string, error) {
-	imageRef := path.Join(repoURL, chartName)
-
 	if _, err := version.ParseVersion(chartVersion); err == nil {
 		return chartVersion, nil
 	}
 
-	tags, err := client.Tags(
-		strings.TrimPrefix(imageRef, fmt.Sprintf("%s://", registry.OCIScheme)),
-	)
+	chartRef := path.Join(strings.TrimPrefix(repoURL, ociSchemePrefix), chartName)
+	tags, err := client.Tags(chartRef)
 	if err != nil {
-		return "", fmt.Errorf("unable to fetch tags for %s: %w", imageRef, err)
+		return "", fmt.Errorf("unable to fetch tags for %s: %w", chartRef, err)
 	}
 	if len(tags) == 0 {
-		return "", fmt.Errorf("unable to locate any tags for %s: %w", imageRef, err)
+		return "", fmt.Errorf("unable to locate any tags for %s: %w", chartRef, err)
 	}
 
 	result, err := getLatestMatchingVersion(tags, chartVersion)
 	if err != nil {
 		return "", fmt.Errorf(
-			"unable to find latest tag for image %s: %w",
-			imageRef,
+			"unable to find latest tag for chart %s: %w",
+			chartRef,
 			err,
 		)
 	}
