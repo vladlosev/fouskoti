@@ -96,7 +96,15 @@ func createChartArchive(
 		)
 	}
 	defer os.Chdir(curDir)
-	os.Chdir(chartDir)
+	err = os.Chdir(chartDir)
+	if err != nil {
+		return fmt.Errorf(
+			"unable to change directory to %s: %w",
+			chartDir,
+			err,
+		)
+
+	}
 	err = filepath.Walk(
 		".",
 		func(path string, info fs.FileInfo, err error) error {
@@ -401,7 +409,8 @@ var _ = ginkgo.Describe("HelmRelease expansion check", func() {
 		gitClient.
 			On("Clone", mock.Anything, mock.Anything, mock.Anything).
 			Run(func(mock.Arguments) {
-				createFileTree(path.Join(repoRoot, "charts/test-chart"), chartFiles)
+				err := createFileTree(path.Join(repoRoot, "charts/test-chart"), chartFiles)
+				g.Expect(err).ToNot(gomega.HaveOccurred())
 			}).
 			Return(&git.Commit{Hash: git.Hash("dummy")}, nil)
 		expander := NewHelmReleaseExpander(
