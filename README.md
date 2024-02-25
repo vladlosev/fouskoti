@@ -46,8 +46,6 @@ ssh://git@github.com/vladlosev/helm-release-expander:
 ```
 
 ### Plans
-- Implement a CI pipeline linting the source code.
-- Add publishing of release binaries.
 - Add a repository for the asdf package manager
 - Improve authentication support for Helm and OCI repositories.
 - Add recursive expansion of generated HelmRelease resources.
