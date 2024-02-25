@@ -49,8 +49,6 @@ ssh://git@github.com/vladlosev/helm-release-expander:
 - Implement a CI pipeline linting the source code.
 - Add publishing of release binaries.
 - Add a repository for the asdf package manager
-- Implement support for OCI Helm chart repositories.
-- Add authentication support for AWS ECR repositories.
 - Improve authentication support for Helm and OCI repositories.
 - Add recursive expansion of generated HelmRelease resources.
-- Write the README content describing the program and its usage.
+- Expand the README content describing the program and its usage.
