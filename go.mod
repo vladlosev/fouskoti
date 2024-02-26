@@ -1,4 +1,4 @@
-module github.com/vladlosev/hrval
+module github.com/vladlosev/fouskoti
 
 go 1.21
 

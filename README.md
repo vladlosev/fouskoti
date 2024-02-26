@@ -34,7 +34,7 @@ private SSH key) and `known_hosts` (public keys for the host in the URL)
 
 Example of a credentials file:
 ```yaml
-ssh://git@github.com/vladlosev/helm-release-expander:
+ssh://git@github.com/vladlosev/fouskoti:
   identity: |
     -----BEGIN OPENSSH PRIVATE KEY-----
     <snip>

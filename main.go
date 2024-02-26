@@ -4,7 +4,7 @@ import (
 	"os"
 	"slices"
 
-	"github.com/vladlosev/hrval/cmd"
+	"github.com/vladlosev/fouskoti/cmd"
 )
 
 func main() {

@@ -11,7 +11,7 @@ import (
 	"github.com/spf13/cobra"
 	"sigs.k8s.io/kustomize/kyaml/yaml"
 
-	"github.com/vladlosev/hrval/pkg/repository"
+	"github.com/vladlosev/fouskoti/pkg/repository"
 )
 
 type ExpandCommandOptions struct {

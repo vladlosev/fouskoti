@@ -24,7 +24,7 @@ import (
 	"sigs.k8s.io/kustomize/kyaml/kio"
 	"sigs.k8s.io/kustomize/kyaml/yaml"
 
-	yamlutil "github.com/vladlosev/hrval/pkg/yaml"
+	yamlutil "github.com/vladlosev/fouskoti/pkg/yaml"
 )
 
 type repositoryLoader interface {
