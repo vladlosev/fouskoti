@@ -17,6 +17,7 @@ type RootCommandOptions struct {
 	logLevel  string
 	logFormat string
 
+	VersionCommandOptions
 	ExpandCommandOptions
 }
 
@@ -85,7 +86,7 @@ func NewRootCommand(options *RootCommandOptions) *cobra.Command {
 			}
 			logger := slog.New(handler)
 			cmd.SetContext(context.WithValue(ctx, contextKeyLogger, logger))
-			logger.Info("Finished initialization")
+			logger.Debug("Finished initialization")
 			return nil
 		},
 	}
@@ -103,6 +104,7 @@ func NewRootCommand(options *RootCommandOptions) *cobra.Command {
 		"text",
 		"Log format (text or json)",
 	)
+	command.AddCommand(NewVersionCommand(&options.VersionCommandOptions))
 	command.AddCommand(NewExpandCommand(&options.ExpandCommandOptions))
 
 	return command

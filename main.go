@@ -7,8 +7,20 @@ import (
 	"github.com/vladlosev/fouskoti/cmd"
 )
 
+var (
+	version = ""
+	commit  = ""
+	date    = ""
+)
+
 func main() {
-	var options cmd.RootCommandOptions
+	options := cmd.RootCommandOptions{
+		VersionCommandOptions: cmd.VersionCommandOptions{
+			Version: version,
+			Commit:  commit,
+			Date:    date,
+		},
+	}
 	rootCommand := cmd.NewRootCommand(&options)
 
 	childCommand, _, _ := rootCommand.Find(os.Args[1:])
