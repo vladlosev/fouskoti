@@ -46,7 +46,8 @@ ssh://git@github.com/vladlosev/fouskoti:
 ```
 
 ### Plans
-- Add a repository for the asdf package manager
+- Add chart caching at runtime.
+- Add persistent chart caching.
 - Improve authentication support for Helm and OCI repositories.
 - Add recursive expansion of generated HelmRelease resources.
 - Expand the README content describing the program and its usage.
