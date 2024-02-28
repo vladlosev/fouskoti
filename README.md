@@ -10,7 +10,7 @@ manifests that a release is expanded into and thus cannot verify them.
 This project's goal is to provide a tool that expands the `HelmRelease` resources into
 the resulting manifests, thus allowing the verification tools to check them.
 
-# Running the tool
+## Running the tool
 
 Invoke the tool with one or more arguments that are names of the files with the
 input manifests. The tool will inspect the resources defined in those manifests
@@ -45,7 +45,7 @@ ssh://git@github.com/vladlosev/fouskoti:
     github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl
 ```
 
-### Plans
+## Plans
 - Add chart caching at runtime.
 - Add persistent chart caching.
 - Improve authentication support for Helm and OCI repositories.
