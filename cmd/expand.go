@@ -95,6 +95,7 @@ func NewExpandCommand(options *ExpandCommandOptions) *cobra.Command {
 				credentials,
 				io.MultiReader(inputs...),
 				os.Stdout,
+				true,
 			)
 		},
 		SilenceUsage: true,

@@ -50,6 +50,33 @@ func (loader *gitRepoChartLoader) loadRepositoryChart(
 	}
 
 	repoURL := repo.Spec.URL
+	chartKey := fmt.Sprintf(
+		"%s#%s#%s#%s#%s#%s#%s",
+		repoURL,
+		chartName,
+		repo.Spec.Reference.Branch,
+		repo.Spec.Reference.Tag,
+		repo.Spec.Reference.SemVer,
+		repo.Spec.Reference.Name,
+		repo.Spec.Reference.Commit,
+	)
+	if loader.chartCache != nil {
+		if chart, ok := loader.chartCache[chartKey]; ok {
+			loader.logger.
+				With(
+					"repoURL", repoURL,
+					"name", chartName,
+					"branch", repo.Spec.Reference.Branch,
+					"tag", repo.Spec.Reference.Tag,
+					"semver", repo.Spec.Reference.SemVer,
+					"name", repo.Spec.Reference.Name,
+					"commit", repo.Spec.Reference.Commit,
+				).
+				Debug("Using chart from in-memory cache")
+			return chart, nil
+		}
+	}
+
 	repoPath, err := getCachePathForRepo(loader.cacheRoot, repoURL)
 	if err != nil {
 		return nil, fmt.Errorf(
@@ -144,6 +171,10 @@ func (loader *gitRepoChartLoader) loadRepositoryChart(
 			repoURL,
 			err,
 		)
+	}
+
+	if loader.chartCache != nil {
+		loader.chartCache[chartKey] = chart
 	}
 
 	loader.logger.

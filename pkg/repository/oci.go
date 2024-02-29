@@ -33,7 +33,7 @@ func newOciRepositoryLoader(config loaderConfig) repositoryLoader {
 func (loader *ociRepoChartLoader) loadRepositoryChart(
 	repoNode *yaml.RNode,
 	chartName string,
-	chartVersion string,
+	chartVersionSpec string,
 ) (*chart.Chart, error) {
 	var repo sourcev1beta2.HelmRepository
 
@@ -59,7 +59,7 @@ func (loader *ociRepoChartLoader) loadRepositoryChart(
 	return loader.loadChartByURL(
 		normalizedURL,
 		chartName,
-		chartVersion,
+		chartVersionSpec,
 	)
 }
 
@@ -85,16 +85,19 @@ func (loader *ociRepoChartLoader) awsLogin(registryHost string) (*authn.AuthConf
 
 func getLatestMatchingVersion(
 	tags []string,
-	chartVersion string,
+	versionSpec string,
 ) (string, error) {
-	versionString := chartVersion
+	versionString := versionSpec
 	if versionString == "" {
 		versionString = "*"
 	}
 
 	versionConstraint, err := semver.NewConstraint(versionString)
 	if err != nil {
-		return "", fmt.Errorf("unable to parse version constraint '%s'", chartVersion)
+		return "", fmt.Errorf(
+			"unable to parse version constraint '%s'",
+			versionSpec,
+		)
 	}
 
 	matchingVersions := make([]*semver.Version, 0, len(tags))
@@ -111,8 +114,8 @@ func getLatestMatchingVersion(
 
 	if len(matchingVersions) == 0 {
 		return "", fmt.Errorf(
-			"unable to find version matching provided version string '%s'",
-			chartVersion,
+			"unable to find version matching provided version spec '%s'",
+			versionSpec,
 		)
 	}
 	sort.Sort(sort.Reverse(semver.Collection(matchingVersions)))
@@ -123,10 +126,10 @@ func (loader *ociRepoChartLoader) getChartVersion(
 	client *registry.Client,
 	repoURL string,
 	chartName string,
-	chartVersion string,
+	chartVersionSpec string,
 ) (string, error) {
-	if _, err := version.ParseVersion(chartVersion); err == nil {
-		return chartVersion, nil
+	if _, err := version.ParseVersion(chartVersionSpec); err == nil {
+		return chartVersionSpec, nil
 	}
 
 	chartRef := path.Join(strings.TrimPrefix(repoURL, ociSchemePrefix), chartName)
@@ -138,7 +141,7 @@ func (loader *ociRepoChartLoader) getChartVersion(
 		return "", fmt.Errorf("unable to locate any tags for %s: %w", chartRef, err)
 	}
 
-	result, err := getLatestMatchingVersion(tags, chartVersion)
+	result, err := getLatestMatchingVersion(tags, chartVersionSpec)
 	if err != nil {
 		return "", fmt.Errorf(
 			"unable to find latest tag for chart %s: %w",
@@ -152,13 +155,13 @@ func (loader *ociRepoChartLoader) getChartVersion(
 func (loader *ociRepoChartLoader) loadChartByURL(
 	repoURL string,
 	chartName string,
-	chartVersion string,
+	chartVersionSpec string,
 ) (*chart.Chart, error) {
 	loader.logger.
 		With(
 			"repoURL", repoURL,
 			"name", chartName,
-			"version", chartVersion,
+			"version", chartVersionSpec,
 		).
 		Debug("Loading chart from OCI Helm repository")
 
@@ -210,20 +213,34 @@ func (loader *ociRepoChartLoader) loadChartByURL(
 		)
 	}
 
-	version, err := loader.getChartVersion(
+	chartVersion, err := loader.getChartVersion(
 		registryClient,
 		repoURL,
 		chartName,
-		chartVersion,
+		chartVersionSpec,
 	)
 	if err != nil {
 		return nil, fmt.Errorf(
 			"unable to find version %s for chart %s in repository %s: %w",
-			chartVersion,
+			chartVersionSpec,
 			chartName,
 			repoURL,
 			err,
 		)
+	}
+
+	chartKey := fmt.Sprintf("%s#%s#%s", repoURL, chartName, chartVersion)
+	if loader.chartCache != nil {
+		if chart, ok := loader.chartCache[chartKey]; ok {
+			loader.logger.
+				With(
+					"repoURL", repoURL,
+					"name", chartName,
+					"version", chartVersion,
+				).
+				Debug("Using chart from in-memory cache")
+			return chart, nil
+		}
 	}
 
 	getter, err := helmgetter.NewOCIGetter(
@@ -240,7 +257,7 @@ func (loader *ociRepoChartLoader) loadChartByURL(
 	chartRef := fmt.Sprintf(
 		"%s:%s",
 		path.Join(strings.TrimPrefix(repoURL, ociSchemePrefix), chartName),
-		version,
+		chartVersion,
 	)
 
 	chartData, err := getter.Get(chartRef)
@@ -263,6 +280,7 @@ func (loader *ociRepoChartLoader) loadChartByURL(
 			err,
 		)
 	}
+
 	err = loadChartDependencies(loader.loaderConfig, chart)
 	if err != nil {
 		return nil, fmt.Errorf(
@@ -272,6 +290,10 @@ func (loader *ociRepoChartLoader) loadChartByURL(
 			repoURL,
 			err,
 		)
+	}
+
+	if loader.chartCache != nil {
+		loader.chartCache[chartKey] = chart
 	}
 
 	loader.logger.

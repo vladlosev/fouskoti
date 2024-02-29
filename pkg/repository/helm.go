@@ -54,7 +54,7 @@ func newHelmRepositoryLoader(config loaderConfig) repositoryLoader {
 func (loader *helmRepoChartLoader) loadRepositoryChart(
 	repoNode *yaml.RNode,
 	chartName string,
-	chartVersion string,
+	chartVersionSpec string,
 ) (*chart.Chart, error) {
 	var repo sourcev1beta2.HelmRepository
 	err := decodeToObject(repoNode, &repo)
@@ -79,20 +79,20 @@ func (loader *helmRepoChartLoader) loadRepositoryChart(
 	return loader.loadChartByURL(
 		normalizedURL,
 		chartName,
-		chartVersion,
+		chartVersionSpec,
 	)
 }
 
 func (loader *helmRepoChartLoader) loadChartByURL(
 	repoURL string,
 	chartName string,
-	chartVersion string,
+	chartVersionSpec string,
 ) (*chart.Chart, error) {
 	loader.logger.
 		With(
 			"repoURL", repoURL,
 			"name", chartName,
-			"version", chartVersion,
+			"version", chartVersionSpec,
 		).
 		Debug("Loading chart from Helm repository")
 
@@ -136,15 +136,30 @@ func (loader *helmRepoChartLoader) loadChartByURL(
 		)
 	}
 	chartRepo.IndexFile = repoIndex
-	version, err := repoIndex.Get(chartName, chartVersion)
+	version, err := repoIndex.Get(chartName, chartVersionSpec)
 	if err != nil {
 		return nil, fmt.Errorf(
 			"unable to get chart %s/%s from Helm repository %s: %w",
 			chartName,
-			chartVersion,
+			chartVersionSpec,
 			repoURL,
 			err,
 		)
+	}
+
+	chartVersion := version.Version
+	chartKey := fmt.Sprintf("%s#%s#%s", repoURL, chartName, chartVersion)
+	if loader.chartCache != nil {
+		if chart, ok := loader.chartCache[chartKey]; ok {
+			loader.logger.
+				With(
+					"repoURL", repoURL,
+					"name", chartName,
+					"version", chartVersion,
+				).
+				Debug("Using chart from in-memory cache")
+			return chart, nil
+		}
 	}
 
 	parsedURL, err := url.Parse(version.URLs[0])
@@ -182,11 +197,12 @@ func (loader *helmRepoChartLoader) loadChartByURL(
 		return nil, fmt.Errorf(
 			"unable to load chart %s/%s in %s: %w",
 			chartName,
-			chartVersion,
+			chartVersionSpec,
 			repoURL,
 			err,
 		)
 	}
+
 	err = loadChartDependencies(loader.loaderConfig, chart)
 	if err != nil {
 		return nil, fmt.Errorf(
@@ -196,6 +212,10 @@ func (loader *helmRepoChartLoader) loadChartByURL(
 			repoURL,
 			err,
 		)
+	}
+
+	if loader.chartCache != nil {
+		loader.chartCache[chartKey] = chart
 	}
 
 	loader.logger.

@@ -355,6 +355,7 @@ var _ = ginkgo.Describe("HelmRelease expansion check", func() {
 			Credentials{},
 			bytes.NewBufferString(input),
 			output,
+			false,
 		)
 		g.Expect(err).ToNot(gomega.HaveOccurred())
 		err = stopServing(server, serverDone)
@@ -433,6 +434,7 @@ var _ = ginkgo.Describe("HelmRelease expansion check", func() {
 			}},
 			bytes.NewBufferString(input),
 			output,
+			false,
 		)
 		g.Expect(err).ToNot(gomega.HaveOccurred())
 		g.Expect(output.String()).To(gomega.Equal(strings.Join([]string{

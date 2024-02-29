@@ -61,6 +61,7 @@ type loaderConfig struct {
 	logger           *slog.Logger
 	gitClientFactory gitClientFactoryFunc
 	cacheRoot        string
+	chartCache       map[string]*chart.Chart
 	credentials      Credentials
 }
 
@@ -193,6 +194,7 @@ func loadRepositoryChart(
 	ctx context.Context,
 	logger *slog.Logger,
 	gitClientFactory gitClientFactoryFunc,
+	chartCache map[string]*chart.Chart,
 	credentials Credentials,
 	release *helmv2beta2.HelmRelease,
 	repoNode *yaml.RNode,
@@ -211,7 +213,14 @@ func loadRepositoryChart(
 
 	loader, err := getLoaderForRepo(
 		repoNode,
-		loaderConfig{ctx, logger, gitClientFactory, cacheRoot, credentials},
+		loaderConfig{
+			ctx,
+			logger,
+			gitClientFactory,
+			cacheRoot,
+			chartCache,
+			credentials,
+		},
 	)
 	if err != nil {
 		return nil, err
@@ -272,6 +281,7 @@ func expandHelmRelease(
 	ctx context.Context,
 	logger *slog.Logger,
 	gitClientFactory gitClientFactoryFunc,
+	chartCache map[string]*chart.Chart,
 	credentials Credentials,
 	releaseNode *yaml.RNode,
 	repoNode *yaml.RNode,
@@ -297,6 +307,7 @@ func expandHelmRelease(
 		ctx,
 		logger,
 		gitClientFactory,
+		chartCache,
 		credentials,
 		&release,
 		repoNode,
@@ -473,6 +484,7 @@ type releaseRepoRenderer struct {
 	ctx              context.Context
 	logger           *slog.Logger
 	gitClientFactory gitClientFactoryFunc
+	chartCache       map[string]*chart.Chart
 	credentials      Credentials
 	pairs            *[]releaseRepo
 }
@@ -481,6 +493,7 @@ func newReleaseRepoRenderer(
 	ctx context.Context,
 	logger *slog.Logger,
 	gitClientFactory gitClientFactoryFunc,
+	chartCache map[string]*chart.Chart,
 	credentials Credentials,
 	pairs *[]releaseRepo,
 ) *releaseRepoRenderer {
@@ -488,6 +501,7 @@ func newReleaseRepoRenderer(
 		ctx:              ctx,
 		logger:           logger,
 		gitClientFactory: gitClientFactory,
+		chartCache:       chartCache,
 		credentials:      credentials,
 		pairs:            pairs,
 	}
@@ -503,6 +517,7 @@ func (renderer *releaseRepoRenderer) Filter(
 			renderer.ctx,
 			renderer.logger,
 			renderer.gitClientFactory,
+			renderer.chartCache,
 			renderer.credentials,
 			pair.release,
 			pair.repo,
@@ -542,13 +557,20 @@ func (expander *HelmReleaseExpander) ExpandHelmReleases(
 	credentials Credentials,
 	input io.Reader,
 	output io.Writer,
+	enableChartInMemoryCache bool,
 ) error {
+	var chartCache map[string]*chart.Chart
+	if enableChartInMemoryCache {
+		chartCache = make(map[string]*chart.Chart)
+	}
+
 	var pairs []releaseRepo
 	filter1 := newReleaseRepoFilter(&pairs)
 	filter2 := newReleaseRepoRenderer(
 		expander.ctx,
 		expander.logger,
 		expander.gitClientFactory,
+		chartCache,
 		credentials,
 		&pairs,
 	)
