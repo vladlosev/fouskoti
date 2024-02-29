@@ -24,6 +24,19 @@ func newGitRepositoryLoader(config loaderConfig) repositoryLoader {
 	return &gitRepoChartLoader{loaderConfig: config}
 }
 
+func normalizeGitReference(
+	original *sourcev1.GitRepositoryRef,
+) *sourcev1.GitRepositoryRef {
+	if original != nil && (original.Branch == "" ||
+		original.Tag == "" ||
+		original.SemVer == "" ||
+		original.Name == "" ||
+		original.Commit == "") {
+		return original
+	}
+	return &sourcev1.GitRepositoryRef{Branch: "master"}
+}
+
 func (loader *gitRepoChartLoader) loadRepositoryChart(
 	repoNode *yaml.RNode,
 	chartName string,
@@ -50,15 +63,16 @@ func (loader *gitRepoChartLoader) loadRepositoryChart(
 	}
 
 	repoURL := repo.Spec.URL
+	ref := normalizeGitReference(repo.Spec.Reference)
 	chartKey := fmt.Sprintf(
 		"%s#%s#%s#%s#%s#%s#%s",
 		repoURL,
 		chartName,
-		repo.Spec.Reference.Branch,
-		repo.Spec.Reference.Tag,
-		repo.Spec.Reference.SemVer,
-		repo.Spec.Reference.Name,
-		repo.Spec.Reference.Commit,
+		ref.Branch,
+		ref.Tag,
+		ref.SemVer,
+		ref.Name,
+		ref.Commit,
 	)
 	if loader.chartCache != nil {
 		if chart, ok := loader.chartCache[chartKey]; ok {
@@ -66,11 +80,11 @@ func (loader *gitRepoChartLoader) loadRepositoryChart(
 				With(
 					"repoURL", repoURL,
 					"name", chartName,
-					"branch", repo.Spec.Reference.Branch,
-					"tag", repo.Spec.Reference.Tag,
-					"semver", repo.Spec.Reference.SemVer,
-					"name", repo.Spec.Reference.Name,
-					"commit", repo.Spec.Reference.Commit,
+					"branch", ref.Branch,
+					"tag", ref.Tag,
+					"semver", ref.SemVer,
+					"name", ref.Name,
+					"commit", ref.Commit,
 				).
 				Debug("Using chart from in-memory cache")
 			return chart, nil
@@ -134,11 +148,11 @@ func (loader *gitRepoChartLoader) loadRepositoryChart(
 	}
 	if repo.Spec.Reference != nil {
 		cloneOpts.CheckoutStrategy = repository.CheckoutStrategy{
-			Branch:  repo.Spec.Reference.Branch,
-			Tag:     repo.Spec.Reference.Tag,
-			SemVer:  repo.Spec.Reference.SemVer,
-			RefName: repo.Spec.Reference.Name,
-			Commit:  repo.Spec.Reference.Commit,
+			Branch:  ref.Branch,
+			Tag:     ref.Tag,
+			SemVer:  ref.SemVer,
+			RefName: ref.Name,
+			Commit:  ref.Commit,
 		}
 	}
 	_, err = client.Clone(cloneCtx, repoURL, cloneOpts)
