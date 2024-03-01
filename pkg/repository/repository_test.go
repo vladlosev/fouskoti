@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -212,10 +213,19 @@ func createSingleChartHelmRepository(
 	return nil
 }
 
+type logRecord struct {
+	Method string
+	URL    url.URL
+}
+
+type logRecorder struct {
+	records []logRecord
+}
+
 func serveDirectory(
 	dir string,
 	logger *slog.Logger,
-	logWriter io.Writer,
+	recorder *logRecorder,
 ) (*http.Server, int, <-chan struct{}, error) {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -225,8 +235,17 @@ func serveDirectory(
 		)
 	}
 	handler := http.FileServer(http.Dir(dir))
-	if logWriter != nil {
-		handler = handlers.LoggingHandler(logWriter, handler)
+	if recorder != nil {
+		handler = handlers.CustomLoggingHandler(
+			os.Stderr,
+			handlers.LoggingHandler(os.Stderr, handler),
+			func(_ io.Writer, params handlers.LogFormatterParams) {
+				recorder.records = append(recorder.records, logRecord{
+					Method: params.Request.Method,
+					URL:    params.URL,
+				})
+			},
+		)
 	}
 	port := listener.Addr().(*net.TCPAddr).Port
 	server := &http.Server{
@@ -234,7 +253,7 @@ func serveDirectory(
 	}
 	done := make(chan struct{})
 	go func() {
-		if err := server.Serve(listener); err != nil {
+		if err := server.Serve(listener); err != nil && err != http.ErrServerClosed {
 			if logger != nil {
 				logger.With("error", err, "port", port).Error("unable to serve http")
 			}
@@ -376,6 +395,114 @@ var _ = ginkgo.Describe("HelmRelease expansion check", func() {
 		))
 	})
 
+	ginkgo.It("caches charts in Helm repositories", func() {
+		repoRoot, err := os.MkdirTemp("", "")
+		g.Expect(err).ToNot(gomega.HaveOccurred())
+		defer os.RemoveAll(repoRoot)
+		recorder := logRecorder{}
+		server, port, serverDone, err := serveDirectory(repoRoot, logger, &recorder)
+		g.Expect(err).ToNot(gomega.HaveOccurred())
+		err = createSingleChartHelmRepository(
+			"test-chart",
+			"0.1.0",
+			chartFiles,
+			port,
+			repoRoot,
+		)
+		input := strings.Join([]string{
+			"apiVersion: helm.toolkit.fluxcd.io/v2beta2",
+			"kind: HelmRelease",
+			"metadata:",
+			"  namespace: testns",
+			"  name: test",
+			"spec:",
+			"  chart:",
+			"    spec:",
+			"      chart: test-chart",
+			"      version: \">=0.1.0\"",
+			"      sourceRef:",
+			"        kind: HelmRepository",
+			"        name: local",
+			"  values:",
+			"    data:",
+			"      foo: baz",
+			"---",
+			"apiVersion: source.toolkit.fluxcd.io/v1beta2",
+			"kind: HelmRepository",
+			"metadata:",
+			"  namespace: testns",
+			"  name: local",
+			"spec:",
+			fmt.Sprintf("  url: http://localhost:%d", port),
+			"---",
+			"apiVersion: helm.toolkit.fluxcd.io/v2beta2",
+			"kind: HelmRelease",
+			"metadata:",
+			"  namespace: testns-different",
+			"  name: test-another",
+			"spec:",
+			"  chart:",
+			"    spec:",
+			"      chart: test-chart",
+			"      version: \">=0.0.1\"",
+			"      sourceRef:",
+			"        kind: HelmRepository",
+			"        name: local-other",
+			"  values:",
+			"    data:",
+			"      foo: baz",
+			"---",
+			"apiVersion: source.toolkit.fluxcd.io/v1beta2",
+			"kind: HelmRepository",
+			"metadata:",
+			"  namespace: testns-different",
+			"  name: local-other",
+			"spec:",
+			fmt.Sprintf("  url: http://localhost:%d", port),
+		}, "\n")
+		g.Expect(err).ToNot(gomega.HaveOccurred())
+
+		expander := NewHelmReleaseExpander(ctx, logger, nil)
+		output := &bytes.Buffer{}
+		err = expander.ExpandHelmReleases(
+			Credentials{},
+			bytes.NewBufferString(input),
+			output,
+			true,
+		)
+		g.Expect(err).ToNot(gomega.HaveOccurred())
+		err = stopServing(server, serverDone)
+		g.Expect(err).ToNot(gomega.HaveOccurred())
+		g.Expect(output.String()).To(gomega.Equal(strings.Join([]string{
+			input,
+			"---",
+			"# Source: test-chart/templates/configmap.yaml",
+			"apiVersion: v1",
+			"kind: ConfigMap",
+			"metadata:",
+			"  namespace: testns",
+			"  name: testns-test-configmap",
+			"data:",
+			"  foo: baz",
+			"---",
+			"# Source: test-chart/templates/configmap.yaml",
+			"apiVersion: v1",
+			"kind: ConfigMap",
+			"metadata:",
+			"  namespace: testns-different",
+			"  name: testns-different-test-another-configmap",
+			"data:",
+			"  foo: baz",
+			"",
+		}, "\n"),
+		))
+		g.Expect(recorder.records).To(gomega.HaveLen(3))
+		g.Expect(recorder.records[0]).To(gomega.HaveField("URL.Path", "/index.yaml"))
+		// Only one chart request is expected.
+		g.Expect(recorder.records[1]).To(gomega.HaveField("URL.Path", "/test-chart-0.1.0.tgz"))
+		g.Expect(recorder.records[2]).To(gomega.HaveField("URL.Path", "/index.yaml"))
+	})
+
 	ginkgo.It("expands HelmRelease from a chart in a Git repository", func() {
 		var repoRoot string
 		repoURL := "ssh://git@localhost/dummy.git"
@@ -446,6 +573,117 @@ var _ = ginkgo.Describe("HelmRelease expansion check", func() {
 			"metadata:",
 			"  namespace: testns",
 			"  name: testns-test-configmap",
+			"data:",
+			"  foo: baz",
+			"",
+		}, "\n"),
+		))
+	})
+
+	ginkgo.It("caches charts in Git repositories", func() {
+		var repoRoot string
+		repoURL := "ssh://git@localhost/dummy.git"
+		input := strings.Join([]string{
+			"apiVersion: helm.toolkit.fluxcd.io/v2beta2",
+			"kind: HelmRelease",
+			"metadata:",
+			"  namespace: testns",
+			"  name: test",
+			"spec:",
+			"  chart:",
+			"    spec:",
+			"      chart: charts/test-chart",
+			"      sourceRef:",
+			"        kind: GitRepository",
+			"        name: local",
+			"  values:",
+			"    data:",
+			"      foo: baz",
+			"---",
+			"apiVersion: helm.toolkit.fluxcd.io/v2beta2",
+			"kind: HelmRelease",
+			"metadata:",
+			"  namespace: testns-other",
+			"  name: test-another",
+			"spec:",
+			"  chart:",
+			"    spec:",
+			"      chart: charts/test-chart",
+			"      sourceRef:",
+			"        kind: GitRepository",
+			"        name: local-2",
+			"  values:",
+			"    data:",
+			"      foo: baz",
+			"---",
+			"apiVersion: source.toolkit.fluxcd.io/v1beta2",
+			"kind: GitRepository",
+			"metadata:",
+			"  namespace: testns",
+			"  name: local",
+			"spec:",
+			"  url: " + repoURL,
+			"---",
+			"apiVersion: source.toolkit.fluxcd.io/v1beta2",
+			"kind: GitRepository",
+			"metadata:",
+			"  namespace: testns-other",
+			"  name: local-2",
+			"spec:",
+			"  url: " + repoURL, // Same repository URL.
+		}, "\n")
+
+		gitClient := &GitClientMock{}
+
+		gitClient.
+			On("Clone", mock.Anything, mock.Anything, mock.Anything).
+			Once(). // Clone is attempted only once.
+			Run(func(mock.Arguments) {
+				err := createFileTree(path.Join(repoRoot, "charts/test-chart"), chartFiles)
+				g.Expect(err).ToNot(gomega.HaveOccurred())
+			}).
+			Return(&git.Commit{Hash: git.Hash("dummy")}, nil)
+		expander := NewHelmReleaseExpander(
+			ctx,
+			logger,
+			func(
+				path string,
+				authOpts *git.AuthOptions,
+				clientOpts ...gogit.ClientOption,
+			) (GitClientInterface, error) {
+				repoRoot = path
+				return gitClient, nil
+			},
+		)
+		output := &bytes.Buffer{}
+		err := expander.ExpandHelmReleases(
+			Credentials{repoURL: map[string][]byte{
+				"identity":    []byte("dummy"),
+				"known_hosts": []byte("dummy"),
+			}},
+			bytes.NewBufferString(input),
+			output,
+			true,
+		)
+		g.Expect(err).ToNot(gomega.HaveOccurred())
+		g.Expect(output.String()).To(gomega.Equal(strings.Join([]string{
+			input,
+			"---",
+			"# Source: test-chart/templates/configmap.yaml",
+			"apiVersion: v1",
+			"kind: ConfigMap",
+			"metadata:",
+			"  namespace: testns",
+			"  name: testns-test-configmap",
+			"data:",
+			"  foo: baz",
+			"---",
+			"# Source: test-chart/templates/configmap.yaml",
+			"apiVersion: v1",
+			"kind: ConfigMap",
+			"metadata:",
+			"  namespace: testns-other",
+			"  name: testns-other-test-another-configmap",
 			"data:",
 			"  foo: baz",
 			"",
