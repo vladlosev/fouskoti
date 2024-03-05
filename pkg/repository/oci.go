@@ -37,9 +37,9 @@ func (loader *ociRepoChartLoader) loadRepositoryChart(
 	chartName string,
 	chartVersionSpec string,
 ) (*chart.Chart, error) {
-	var repo sourcev1beta2.HelmRepository
 
-	if repoURL == "" {
+	if repoNode != nil {
+		var repo sourcev1beta2.HelmRepository
 		err := decodeToObject(repoNode, &repo)
 		if err != nil {
 			return nil, fmt.Errorf(
@@ -52,17 +52,17 @@ func (loader *ociRepoChartLoader) loadRepositoryChart(
 		repoURL = repo.Spec.URL
 	}
 
-	repoURL, err := normalizeURL(repoURL)
+	normalizedURL, err := normalizeURL(repoURL)
 	if err != nil {
 		return nil, fmt.Errorf(
 			"invalid Helm repository URL %s: %w",
-			repo.Spec.URL,
+			repoURL,
 			err,
 		)
 	}
 
 	return loader.loadChartByURL(
-		repoURL,
+		normalizedURL,
 		chartName,
 		chartVersionSpec,
 	)

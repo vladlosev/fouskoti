@@ -58,22 +58,25 @@ func (loader *helmRepoChartLoader) loadRepositoryChart(
 	chartName string,
 	chartVersionSpec string,
 ) (*chart.Chart, error) {
-	var repo sourcev1beta2.HelmRepository
-	err := decodeToObject(repoNode, &repo)
-	if err != nil {
-		return nil, fmt.Errorf(
-			"unable to decode HelmRepository %s/%s: %w",
-			repoNode.GetNamespace(),
-			repoNode.GetName(),
-			err,
-		)
+	if repoNode != nil {
+		var repo sourcev1beta2.HelmRepository
+		err := decodeToObject(repoNode, &repo)
+		if err != nil {
+			return nil, fmt.Errorf(
+				"unable to decode HelmRepository %s/%s: %w",
+				repoNode.GetNamespace(),
+				repoNode.GetName(),
+				err,
+			)
+		}
+		repoURL = repo.Spec.URL
 	}
 
-	normalizedURL, err := normalizeURL(repo.Spec.URL)
+	normalizedURL, err := normalizeURL(repoURL)
 	if err != nil {
 		return nil, fmt.Errorf(
 			"invalid Helm repository URL %s: %w",
-			repo.Spec.URL,
+			repoURL,
 			err,
 		)
 	}
@@ -171,6 +174,12 @@ func (loader *helmRepoChartLoader) loadChartByURL(
 			version.URLs[0],
 			err,
 		)
+	}
+	if parsedURL.Host == "" && !path.IsAbs(parsedURL.Path) {
+		// Adjust the URL to be absolute.
+		parsedRepoURL, _ := url.Parse(repoURL)
+		parsedRepoURL.Path = path.Join(parsedRepoURL.Path, parsedURL.Path)
+		parsedURL = parsedRepoURL
 	}
 
 	getter, err := getters.ByScheme(parsedURL.Scheme)

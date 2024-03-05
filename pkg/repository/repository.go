@@ -190,6 +190,13 @@ func getLoaderForRepoURL(
 	return factory(config), nil
 }
 
+func joinPath(a string, b string) string {
+	if path.IsAbs(b) {
+		return b
+	}
+	return path.Join(a, b)
+}
+
 func decodeToObject(node *yaml.RNode, out runtime.Object) error {
 	bytes, err := node.MarshalJSON()
 	if err != nil {
@@ -269,6 +276,11 @@ func loadChartDependencies(
 	parentContext *chartContext,
 ) error {
 	for _, dependency := range parentChart.Metadata.Dependencies {
+		if dependency.Repository == "" {
+			// This is a bundled chart, and those do not have repository
+			// information and are not addressable outside of the parent chart.
+			continue
+		}
 		repoURL, err := normalizeURL(dependency.Repository)
 		if err != nil {
 			return fmt.Errorf(
@@ -291,7 +303,7 @@ func loadChartDependencies(
 				parentContext.repoNode,
 				"",
 				parentContext,
-				path.Join(parentContext.chartName, parsedURL.Path),
+				joinPath(parentContext.chartName, parsedURL.Path),
 				dependency.Version,
 			)
 		default:
@@ -311,7 +323,7 @@ func loadChartDependencies(
 			dependencyChart, err = loader.loadRepositoryChart(
 				nil,
 				repoURL,
-				parentContext,
+				nil,
 				dependency.Name,
 				dependency.Version,
 			)
