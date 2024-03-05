@@ -445,6 +445,9 @@ func expandHelmRelease(
 			continue
 		}
 		result, err := yaml.Parse(manifest)
+		if err == io.EOF {
+			continue
+		}
 		if err != nil {
 			return nil, fmt.Errorf(
 				"unable to parse manifest %s from Helm release %s/%s: %w",
