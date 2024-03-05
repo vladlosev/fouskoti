@@ -1,9 +1,7 @@
 package cmd
 
 import (
-	"bytes"
 	"fmt"
-	"io"
 	"os"
 
 	"github.com/fluxcd/pkg/git"
@@ -20,13 +18,6 @@ type ExpandCommandOptions struct {
 
 const ExpandCommandName = "expand"
 
-func appendDocSeparator(inputs []io.Reader) []io.Reader {
-	if len(inputs) > 0 {
-		inputs = append(inputs, bytes.NewBufferString("\n---\n"))
-	}
-	return inputs
-}
-
 func NewExpandCommand(options *ExpandCommandOptions) *cobra.Command {
 	command := &cobra.Command{
 		Use:   ExpandCommandName,
@@ -34,24 +25,11 @@ func NewExpandCommand(options *ExpandCommandOptions) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx, logger := getContextAndLogger(cmd)
 			logger.Info("Staring expand command")
-			var inputs []io.Reader
-			for _, arg := range args {
-				if arg == "-" {
-					inputs = append(inputs, os.Stdin)
-				} else {
-					inputs = appendDocSeparator(inputs)
-					file, err := os.Open(arg)
-					if err != nil {
-						return fmt.Errorf("unable to open input file %s: %w", arg, err)
-					}
-					defer file.Close()
-					inputs = appendDocSeparator(inputs)
-					inputs = append(inputs, file)
-				}
+			input, err := getYAMLInputReader(args)
+			if err != nil {
+				return err
 			}
-			if len(args) == 0 {
-				inputs = append(inputs, os.Stdin)
-			}
+			defer input.Close()
 
 			stringCreds := map[string]map[string]string{}
 			credentials := repository.Credentials{}
@@ -96,7 +74,7 @@ func NewExpandCommand(options *ExpandCommandOptions) *cobra.Command {
 			)
 			return expander.ExpandHelmReleases(
 				credentials,
-				io.MultiReader(inputs...),
+				input,
 				os.Stdout,
 				true,
 			)
