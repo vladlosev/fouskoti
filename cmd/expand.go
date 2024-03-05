@@ -49,6 +49,9 @@ func NewExpandCommand(options *ExpandCommandOptions) *cobra.Command {
 					inputs = append(inputs, file)
 				}
 			}
+			if len(args) == 0 {
+				inputs = append(inputs, os.Stdin)
+			}
 
 			stringCreds := map[string]map[string]string{}
 			credentials := repository.Credentials{}
