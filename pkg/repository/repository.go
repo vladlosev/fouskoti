@@ -11,6 +11,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	helmv2beta2 "github.com/fluxcd/helm-controller/api/v2beta2"
@@ -27,20 +28,47 @@ import (
 	yamlutil "github.com/vladlosev/fouskoti/pkg/yaml"
 )
 
+type chartContext struct {
+	localRepoPath string
+	chartName     string
+	loader        repositoryLoader
+	repoNode      *yaml.RNode
+}
+
 type repositoryLoader interface {
+	// loadRepositoryChart loads a chart from repositoy with a URL specified
+	// either in repoURL or in repoNode.
 	loadRepositoryChart(
 		repoNode *yaml.RNode,
-		chartName string,
-		chartVersion string,
-	) (*chart.Chart, error)
-	loadChartByURL(
 		repoURL string,
+		parentContext *chartContext,
 		chartName string,
 		chartVersion string,
 	) (*chart.Chart, error)
 }
 
 type Credentials map[string]map[string][]byte
+
+func (credentials Credentials) findForRepo(
+	repoURL *url.URL,
+) (map[string][]byte, error) {
+	for storedRepoURL, creds := range credentials {
+		parsedURL, err := url.Parse(storedRepoURL)
+		if err != nil {
+			return nil, fmt.Errorf(
+				"unable to parse configured repository URL %s:%w",
+				storedRepoURL,
+				err,
+			)
+		}
+		if repoURL.Scheme == parsedURL.Scheme &&
+			repoURL.Host == parsedURL.Host &&
+			repoURL.User.Username() == parsedURL.User.Username() {
+			return creds, nil
+		}
+	}
+	return nil, nil
+}
 
 type GitClientInterface interface {
 	Clone(
@@ -228,13 +256,19 @@ func loadRepositoryChart(
 
 	return loader.loadRepositoryChart(
 		repoNode,
+		"",
+		nil,
 		release.Spec.Chart.Spec.Chart,
 		release.Spec.Chart.Spec.Version,
 	)
 }
 
-func loadChartDependencies(config loaderConfig, chart *chart.Chart) error {
-	for _, dependency := range chart.Metadata.Dependencies {
+func loadChartDependencies(
+	config loaderConfig,
+	parentChart *chart.Chart,
+	parentContext *chartContext,
+) error {
+	for _, dependency := range parentChart.Metadata.Dependencies {
 		repoURL, err := normalizeURL(dependency.Repository)
 		if err != nil {
 			return fmt.Errorf(
@@ -245,34 +279,54 @@ func loadChartDependencies(config loaderConfig, chart *chart.Chart) error {
 			)
 		}
 
-		loader, err := getLoaderForRepoURL(repoURL, config)
-		if err != nil {
-			return fmt.Errorf(
-				"unable to get loader for chart %s/%s in %s (a dependency of %s): %w",
+		parsedURL, _ := url.Parse(repoURL)
+		if parsedURL.Host == ".." {
+			parsedURL.Host = ""
+			parsedURL.Path = path.Join("..", parsedURL.Path)
+		}
+		var dependencyChart *chart.Chart
+		switch parsedURL.Scheme {
+		case "file", "":
+			dependencyChart, err = parentContext.loader.loadRepositoryChart(
+				parentContext.repoNode,
+				"",
+				parentContext,
+				path.Join(parentContext.chartName, parsedURL.Path),
+				dependency.Version,
+			)
+		default:
+			var loader repositoryLoader
+			loader, err = getLoaderForRepoURL(repoURL, config)
+			if err != nil {
+				return fmt.Errorf(
+					"unable to get loader for chart %s/%s in %s (a dependency of %s): %w",
+					dependency.Name,
+					dependency.Version,
+					repoURL,
+					parentChart.Name(),
+					err,
+				)
+			}
+
+			dependencyChart, err = loader.loadRepositoryChart(
+				nil,
+				repoURL,
+				parentContext,
 				dependency.Name,
 				dependency.Version,
-				repoURL,
-				chart.Name(),
-				err,
 			)
 		}
-
-		dependencyChart, err := loader.loadChartByURL(
-			repoURL,
-			dependency.Name,
-			dependency.Version,
-		)
 		if err != nil {
 			return fmt.Errorf(
 				"unable to load chart %s/%s from %s (a dependency of %s): %w",
 				dependency.Name,
 				dependency.Version,
 				repoURL,
-				chart.Name(),
+				parentChart.Name(),
 				err,
 			)
 		}
-		chart.AddDependency(dependencyChart)
+		parentChart.AddDependency(dependencyChart)
 	}
 	return nil
 }
@@ -532,6 +586,40 @@ func (renderer *releaseRepoRenderer) Filter(
 		}
 		result = append(result, expanded...)
 	}
+	slices.SortStableFunc(result, func(a, b *yaml.RNode) int {
+		aKind := a.GetKind()
+		bKind := b.GetKind()
+		if aKind < bKind {
+			return -1
+		} else if aKind > bKind {
+			return 1
+		}
+
+		aVersion := a.GetApiVersion()
+		bVersion := b.GetApiVersion()
+		if aVersion < bVersion {
+			return -1
+		} else if aVersion > bVersion {
+			return 1
+		}
+
+		aNamespace := a.GetNamespace()
+		bNamespace := b.GetNamespace()
+		if aNamespace < bNamespace {
+			return -1
+		} else if aNamespace > bNamespace {
+			return 1
+		}
+
+		aName := a.GetName()
+		bName := b.GetName()
+		if aName < bName {
+			return -1
+		} else if aName > bName {
+			return 1
+		}
+		return 0
+	})
 	return append(nodes, result...), nil
 }
 

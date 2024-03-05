@@ -32,22 +32,27 @@ func newOciRepositoryLoader(config loaderConfig) repositoryLoader {
 
 func (loader *ociRepoChartLoader) loadRepositoryChart(
 	repoNode *yaml.RNode,
+	repoURL string,
+	parentContext *chartContext,
 	chartName string,
 	chartVersionSpec string,
 ) (*chart.Chart, error) {
 	var repo sourcev1beta2.HelmRepository
 
-	err := decodeToObject(repoNode, &repo)
-	if err != nil {
-		return nil, fmt.Errorf(
-			"unable to decode OCIRepository %s/%s: %w",
-			repoNode.GetNamespace(),
-			repoNode.GetName(),
-			err,
-		)
+	if repoURL == "" {
+		err := decodeToObject(repoNode, &repo)
+		if err != nil {
+			return nil, fmt.Errorf(
+				"unable to decode OCIRepository %s/%s: %w",
+				repoNode.GetNamespace(),
+				repoNode.GetName(),
+				err,
+			)
+		}
+		repoURL = repo.Spec.URL
 	}
 
-	normalizedURL, err := normalizeURL(repo.Spec.URL)
+	repoURL, err := normalizeURL(repoURL)
 	if err != nil {
 		return nil, fmt.Errorf(
 			"invalid Helm repository URL %s: %w",
@@ -57,7 +62,7 @@ func (loader *ociRepoChartLoader) loadRepositoryChart(
 	}
 
 	return loader.loadChartByURL(
-		normalizedURL,
+		repoURL,
 		chartName,
 		chartVersionSpec,
 	)
@@ -281,7 +286,7 @@ func (loader *ociRepoChartLoader) loadChartByURL(
 		)
 	}
 
-	err = loadChartDependencies(loader.loaderConfig, chart)
+	err = loadChartDependencies(loader.loaderConfig, chart, nil)
 	if err != nil {
 		return nil, fmt.Errorf(
 			"unable to load chart dependencies for %s/%s in %s: %w",

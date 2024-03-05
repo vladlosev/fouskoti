@@ -237,8 +237,8 @@ func serveDirectory(
 	handler := http.FileServer(http.Dir(dir))
 	if recorder != nil {
 		handler = handlers.CustomLoggingHandler(
-			os.Stderr,
-			handlers.LoggingHandler(os.Stderr, handler),
+			ginkgo.GinkgoWriter,
+			handlers.LoggingHandler(ginkgo.GinkgoWriter, handler),
 			func(_ io.Writer, params handlers.LogFormatterParams) {
 				recorder.records = append(recorder.records, logRecord{
 					Method: params.Request.Method,
@@ -686,6 +686,136 @@ var _ = ginkgo.Describe("HelmRelease expansion check", func() {
 			"  name: testns-other-test-another-configmap",
 			"data:",
 			"  foo: baz",
+			"",
+		}, "\n"),
+		))
+	})
+
+	ginkgo.It("handles releative dependency chart paths in a Git repository", func() {
+		var repoRoot string
+		repoURL := "ssh://git@localhost/dummy.git"
+		input := strings.Join([]string{
+			"apiVersion: helm.toolkit.fluxcd.io/v2beta2",
+			"kind: HelmRelease",
+			"metadata:",
+			"  namespace: testns",
+			"  name: test",
+			"spec:",
+			"  chart:",
+			"    spec:",
+			"      chart: charts/test-chart",
+			"      sourceRef:",
+			"        kind: GitRepository",
+			"        name: local",
+			"  values:",
+			"    data:",
+			"      foo: baz",
+			"    dependency-chart:",
+			"      data:",
+			"        foo: bar",
+			"---",
+			"apiVersion: source.toolkit.fluxcd.io/v1beta2",
+			"kind: GitRepository",
+			"metadata:",
+			"  namespace: testns",
+			"  name: local",
+			"spec:",
+			"  url: " + repoURL,
+		}, "\n")
+
+		chartFiles := map[string]string{
+			"test-chart/Chart.yaml": strings.Join([]string{
+				"apiVersion: v2",
+				"name: test-chart",
+				"version: 0.1.0",
+				"dependencies:",
+				"- name: dependency-chart",
+				"  version: ^0.1.0",
+				"  repository: ../dependency-chart",
+			}, "\n"),
+			"test-chart/values.yaml": strings.Join([]string{
+				"data:",
+				"  foo: bar",
+			}, "\n"),
+			"test-chart/templates/configmap.yaml": strings.Join([]string{
+				"apiVersion: v1",
+				"kind: ConfigMap",
+				"metadata:",
+				"  namespace: {{ .Release.Namespace }}",
+				"  name: {{ .Release.Name }}-configmap",
+				"data: {{- .Values.data | toYaml | nindent 2 }}",
+			}, "\n"),
+			"dependency-chart/Chart.yaml": strings.Join([]string{
+				"apiVersion: v2",
+				"name: dependency-chart",
+				"version: 0.1.0",
+			}, "\n"),
+			"dependency-chart/values.yaml": strings.Join([]string{
+				"data:",
+				"  foo: bar",
+			}, "\n"),
+			"dependency-chart/templates/configmap.yaml": strings.Join([]string{
+				"apiVersion: v1",
+				"kind: ConfigMap",
+				"metadata:",
+				"  namespace: {{ .Release.Namespace }}",
+				"  name: {{ .Release.Name }}-dependency-configmap",
+				"data: {{- .Values.data | toYaml | nindent 2 }}",
+			}, "\n"),
+		}
+
+		gitClient := &GitClientMock{}
+
+		gitClient.
+			On("Clone", mock.Anything, mock.Anything, mock.Anything).
+			Run(func(mock.Arguments) {
+				err := createFileTree(path.Join(repoRoot, "charts"), chartFiles)
+				g.Expect(err).ToNot(gomega.HaveOccurred())
+			}).
+			Return(&git.Commit{Hash: git.Hash("dummy")}, nil)
+		expander := NewHelmReleaseExpander(
+			ctx,
+			logger,
+			func(
+				path string,
+				authOpts *git.AuthOptions,
+				clientOpts ...gogit.ClientOption,
+			) (GitClientInterface, error) {
+				repoRoot = path
+				return gitClient, nil
+			},
+		)
+		output := &bytes.Buffer{}
+		err := expander.ExpandHelmReleases(
+			Credentials{repoURL: map[string][]byte{
+				"identity":    []byte("dummy"),
+				"known_hosts": []byte("dummy"),
+			}},
+			bytes.NewBufferString(input),
+			output,
+			false,
+		)
+		g.Expect(err).ToNot(gomega.HaveOccurred())
+		g.Expect(output.String()).To(gomega.Equal(strings.Join([]string{
+			input,
+			"---",
+			"# Source: test-chart/templates/configmap.yaml",
+			"apiVersion: v1",
+			"kind: ConfigMap",
+			"metadata:",
+			"  namespace: testns",
+			"  name: testns-test-configmap",
+			"data:",
+			"  foo: baz",
+			"---",
+			"# Source: test-chart/charts/dependency-chart/templates/configmap.yaml",
+			"apiVersion: v1",
+			"kind: ConfigMap",
+			"metadata:",
+			"  namespace: testns",
+			"  name: testns-test-dependency-configmap",
+			"data:",
+			"  foo: bar",
 			"",
 		}, "\n"),
 		))

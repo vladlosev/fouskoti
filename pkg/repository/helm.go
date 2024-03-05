@@ -53,6 +53,8 @@ func newHelmRepositoryLoader(config loaderConfig) repositoryLoader {
 
 func (loader *helmRepoChartLoader) loadRepositoryChart(
 	repoNode *yaml.RNode,
+	repoURL string,
+	parentContext *chartContext,
 	chartName string,
 	chartVersionSpec string,
 ) (*chart.Chart, error) {
@@ -203,7 +205,7 @@ func (loader *helmRepoChartLoader) loadChartByURL(
 		)
 	}
 
-	err = loadChartDependencies(loader.loaderConfig, chart)
+	err = loadChartDependencies(loader.loaderConfig, chart, nil)
 	if err != nil {
 		return nil, fmt.Errorf(
 			"unable to load chart dependencies for %s/%s in %s: %w",
