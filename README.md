@@ -46,7 +46,7 @@ ssh://git@github.com/vladlosev/fouskoti:
 ```
 
 ## Plans
-- Add chart caching at runtime.
+- Add namespace assignment for generared manifests.
 - Add persistent chart caching.
 - Improve authentication support for Helm and OCI repositories.
 - Add recursive expansion of generated HelmRelease resources.
