@@ -389,6 +389,15 @@ func expandHelmRelease(
 		)
 	}
 
+	err = chartutil.ProcessDependenciesWithMerge(chart, release.GetValues())
+	if err != nil {
+		return nil, fmt.Errorf(
+			"unable to process dependencies for chart %s: %w",
+			chart.Name(),
+			err,
+		)
+	}
+
 	values, err := chartutil.CoalesceValues(chart, release.GetValues())
 	if err != nil {
 		return nil, fmt.Errorf(
