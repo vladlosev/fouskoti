@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -444,10 +445,10 @@ func expandHelmRelease(
 		if filepath.Base(key) == "NOTES.txt" {
 			continue
 		}
-		result, err := yaml.Parse(manifest)
-		if err == io.EOF {
-			continue
+		reader := kio.ByteReader{
+			Reader: bytes.NewBufferString(manifest),
 		}
+		result, err := reader.Read()
 		if err != nil {
 			return nil, fmt.Errorf(
 				"unable to parse manifest %s from Helm release %s/%s: %w",
@@ -457,8 +458,10 @@ func expandHelmRelease(
 				err,
 			)
 		}
-		result.YNode().HeadComment = fmt.Sprintf("Source: " + key)
-		results = append(results, result)
+		for _, node := range result {
+			node.YNode().HeadComment = fmt.Sprintf("Source: " + key)
+			results = append(results, node)
+		}
 	}
 
 	return results, nil
