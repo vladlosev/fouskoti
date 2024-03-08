@@ -3,9 +3,10 @@
 Practitioners of the GitOps approach (as applied to Kubernetes) reap a number of
 benefits deriving from Git being a source of truth for the state of a cluster.
 One such important benefit is an ability to check the resource manifests at the
-CI time for errors, security vulnerabilities, etc.  However, when using applications
-deployed via Flux's `HelmRelease` resources, the CI pipeline does not see the actual
-manifests that a release is expanded into and thus cannot verify them.
+CI time for errors, security vulnerabilities, etc.  However, when using
+applications deployed via [Flux](https://fluxcd.io/flux/)'s `HelmRelease`
+resources, the CI pipeline does not see the actual manifests that a release is
+expanded into and thus cannot verify them.
 
 This project's goal is to provide a tool that expands the `HelmRelease` resources into
 the resulting manifests, thus allowing the verification tools to check them.
@@ -34,7 +35,7 @@ private SSH key) and `known_hosts` (public keys for the host in the URL)
 
 Example of a credentials file:
 ```yaml
-ssh://git@github.com/vladlosev/fouskoti:
+ssh://git@github.com/:
   identity: |
     -----BEGIN OPENSSH PRIVATE KEY-----
     <snip>
@@ -46,7 +47,6 @@ ssh://git@github.com/vladlosev/fouskoti:
 ```
 
 ## Plans
-- Add namespace assignment for generared manifests.
 - Add persistent chart caching.
 - Improve authentication support for Helm and OCI repositories.
 - Add recursive expansion of generated HelmRelease resources.
