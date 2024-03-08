@@ -95,7 +95,7 @@ func NewRootCommand(options *RootCommandOptions) *cobra.Command {
 		&options.logLevel,
 		"log-level",
 		"",
-		"info",
+		"warn",
 		"Log level (debug, info, warn, error)",
 	)
 	command.PersistentFlags().StringVarP(
