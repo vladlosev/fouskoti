@@ -16,6 +16,7 @@ import (
 type ExpandCommandOptions struct {
 	credentialsFileName string
 	kubeVersion         string
+	apiVersions         []string
 }
 
 const ExpandCommandName = "expand"
@@ -89,6 +90,7 @@ func NewExpandCommand(options *ExpandCommandOptions) *cobra.Command {
 				input,
 				os.Stdout,
 				kubeVersion,
+				options.apiVersions,
 				true,
 			)
 		},
@@ -107,6 +109,13 @@ func NewExpandCommand(options *ExpandCommandOptions) *cobra.Command {
 		"",
 		"1.28",
 		"Kubernetes version used for Capabilities.KubeVersion in charts",
+	)
+	command.PersistentFlags().StringSliceVarP(
+		&options.apiVersions,
+		"api-versions",
+		"",
+		[]string{},
+		"Kubernetes api versions used for Capabilities.APIVersions in charts",
 	)
 
 	return command

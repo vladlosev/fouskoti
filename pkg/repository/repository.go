@@ -350,6 +350,7 @@ func expandHelmRelease(
 	logger *slog.Logger,
 	gitClientFactory gitClientFactoryFunc,
 	kubeVersion *chartutil.KubeVersion,
+	apiVersions []string,
 	chartCache map[string]*chart.Chart,
 	credentials Credentials,
 	releaseNode *yaml.RNode,
@@ -414,6 +415,9 @@ func expandHelmRelease(
 	capabilities := chartutil.DefaultCapabilities.Copy()
 	if kubeVersion != nil {
 		capabilities.KubeVersion = *kubeVersion
+	}
+	if len(apiVersions) > 0 {
+		capabilities.APIVersions = chartutil.VersionSet(apiVersions)
 	}
 
 	targetNamespace := release.Spec.TargetNamespace
@@ -586,6 +590,7 @@ type releaseRepoRenderer struct {
 	logger           *slog.Logger
 	gitClientFactory gitClientFactoryFunc
 	kubeVersion      *chartutil.KubeVersion
+	apiVersions      []string
 	chartCache       map[string]*chart.Chart
 	credentials      Credentials
 	pairs            *[]releaseRepo
@@ -596,6 +601,7 @@ func newReleaseRepoRenderer(
 	logger *slog.Logger,
 	gitClientFactory gitClientFactoryFunc,
 	kubeVersion *chartutil.KubeVersion,
+	apiVersions []string,
 	chartCache map[string]*chart.Chart,
 	credentials Credentials,
 	pairs *[]releaseRepo,
@@ -605,6 +611,7 @@ func newReleaseRepoRenderer(
 		logger:           logger,
 		gitClientFactory: gitClientFactory,
 		kubeVersion:      kubeVersion,
+		apiVersions:      apiVersions,
 		chartCache:       chartCache,
 		credentials:      credentials,
 		pairs:            pairs,
@@ -622,6 +629,7 @@ func (renderer *releaseRepoRenderer) Filter(
 			renderer.logger,
 			renderer.gitClientFactory,
 			renderer.kubeVersion,
+			renderer.apiVersions,
 			renderer.chartCache,
 			renderer.credentials,
 			pair.release,
@@ -697,6 +705,7 @@ func (expander *HelmReleaseExpander) ExpandHelmReleases(
 	input io.Reader,
 	output io.Writer,
 	kubeVersion *chartutil.KubeVersion,
+	apiVersions []string,
 	enableChartInMemoryCache bool,
 ) error {
 	var chartCache map[string]*chart.Chart
@@ -711,6 +720,7 @@ func (expander *HelmReleaseExpander) ExpandHelmReleases(
 		expander.logger,
 		expander.gitClientFactory,
 		kubeVersion,
+		apiVersions,
 		chartCache,
 		credentials,
 		&pairs,
