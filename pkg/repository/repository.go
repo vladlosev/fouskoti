@@ -23,6 +23,7 @@ import (
 	"helm.sh/helm/v3/pkg/chartutil"
 	"helm.sh/helm/v3/pkg/engine"
 	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/kustomize/api/filters/namespace"
 	"sigs.k8s.io/kustomize/kyaml/kio"
 	"sigs.k8s.io/kustomize/kyaml/yaml"
 
@@ -389,6 +390,7 @@ func expandHelmRelease(
 		)
 	}
 
+	// Remove charts disabled by conditions.
 	err = chartutil.ProcessDependenciesWithMerge(chart, release.GetValues())
 	if err != nil {
 		return nil, fmt.Errorf(
@@ -473,6 +475,21 @@ func expandHelmRelease(
 		}
 	}
 
+	filter := &namespace.Filter{
+		Namespace:              release.Namespace,
+		UnsetOnly:              true,
+		SetRoleBindingSubjects: namespace.NoSubjects,
+	}
+	results, err = filter.Filter(results)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"unable to assign namespace to resources generated from %s %s/%s: %w",
+			release.Kind,
+			release.Namespace,
+			release.Name,
+			err,
+		)
+	}
 	return results, nil
 }
 
