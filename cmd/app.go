@@ -54,7 +54,7 @@ func getContextAndLogger(cmd *cobra.Command) (context.Context, *slog.Logger) {
 
 func NewRootCommand(options *RootCommandOptions) *cobra.Command {
 	command := &cobra.Command{
-		Use:   "hrval",
+		Use:   os.Args[0],
 		Short: "Expands HelmRelease objects into generated templates",
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
