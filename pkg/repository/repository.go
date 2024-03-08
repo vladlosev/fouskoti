@@ -54,6 +54,9 @@ type Credentials map[string]map[string][]byte
 func (credentials Credentials) findForRepo(
 	repoURL *url.URL,
 ) (map[string][]byte, error) {
+	if creds, ok := credentials[repoURL.String()]; ok {
+		return creds, nil
+	}
 	for storedRepoURL, creds := range credentials {
 		parsedURL, err := url.Parse(storedRepoURL)
 		if err != nil {
