@@ -26,6 +26,7 @@ import (
 	"github.com/onsi/gomega"
 	"github.com/onsi/gomega/format"
 	"github.com/stretchr/testify/mock"
+	"helm.sh/helm/v3/pkg/chartutil"
 	"helm.sh/helm/v3/pkg/repo"
 )
 
@@ -374,6 +375,7 @@ var _ = ginkgo.Describe("HelmRelease expansion check", func() {
 			Credentials{},
 			bytes.NewBufferString(input),
 			output,
+			nil,
 			false,
 		)
 		g.Expect(err).ToNot(gomega.HaveOccurred())
@@ -468,6 +470,7 @@ var _ = ginkgo.Describe("HelmRelease expansion check", func() {
 			Credentials{},
 			bytes.NewBufferString(input),
 			output,
+			nil,
 			true,
 		)
 		g.Expect(err).ToNot(gomega.HaveOccurred())
@@ -578,6 +581,7 @@ var _ = ginkgo.Describe("HelmRelease expansion check", func() {
 			Credentials{},
 			bytes.NewBufferString(input),
 			output,
+			nil,
 			false,
 		)
 		g.Expect(err).ToNot(gomega.HaveOccurred())
@@ -666,6 +670,7 @@ var _ = ginkgo.Describe("HelmRelease expansion check", func() {
 			}},
 			bytes.NewBufferString(input),
 			output,
+			nil,
 			false,
 		)
 		g.Expect(err).ToNot(gomega.HaveOccurred())
@@ -768,6 +773,7 @@ var _ = ginkgo.Describe("HelmRelease expansion check", func() {
 			}},
 			bytes.NewBufferString(input),
 			output,
+			nil,
 			true,
 		)
 		g.Expect(err).ToNot(gomega.HaveOccurred())
@@ -898,6 +904,7 @@ var _ = ginkgo.Describe("HelmRelease expansion check", func() {
 			}},
 			bytes.NewBufferString(input),
 			output,
+			nil,
 			false,
 		)
 		g.Expect(err).ToNot(gomega.HaveOccurred())
@@ -1032,6 +1039,7 @@ var _ = ginkgo.Describe("HelmRelease expansion check", func() {
 			}},
 			bytes.NewBufferString(input),
 			output,
+			nil,
 			false,
 		)
 		g.Expect(err).ToNot(gomega.HaveOccurred())
@@ -1131,6 +1139,7 @@ var _ = ginkgo.Describe("HelmRelease expansion check", func() {
 			}},
 			bytes.NewBufferString(input),
 			output,
+			nil,
 			false,
 		)
 		g.Expect(err).ToNot(gomega.HaveOccurred())
@@ -1143,6 +1152,111 @@ var _ = ginkgo.Describe("HelmRelease expansion check", func() {
 			"metadata:",
 			"  name: testns-test-serviceaccount",
 			"  namespace: testns", // Namespace is added as the last metadata attribute.
+			"",
+		}, "\n"),
+		))
+	})
+
+	ginkgo.It("passes specified Kubernetes version", func() {
+		var repoRoot string
+		repoURL := "ssh://git@localhost/dummy.git"
+		input := strings.Join([]string{
+			"apiVersion: helm.toolkit.fluxcd.io/v2beta2",
+			"kind: HelmRelease",
+			"metadata:",
+			"  namespace: testns",
+			"  name: test",
+			"spec:",
+			"  chart:",
+			"    spec:",
+			"      chart: charts/test-chart",
+			"      sourceRef:",
+			"        kind: GitRepository",
+			"        name: local",
+			"  values:",
+			"    data:",
+			"      foo: baz",
+			"    dependency-chart:",
+			"      enabled: false",
+			"      data:",
+			"        foo: bar",
+			"---",
+			"apiVersion: source.toolkit.fluxcd.io/v1beta2",
+			"kind: GitRepository",
+			"metadata:",
+			"  namespace: testns",
+			"  name: local",
+			"spec:",
+			"  url: " + repoURL,
+		}, "\n")
+
+		chartFiles := map[string]string{
+			"test-chart/Chart.yaml": strings.Join([]string{
+				"apiVersion: v2",
+				"name: test-chart",
+				"version: 0.1.0",
+			}, "\n"),
+			"test-chart/values.yaml": strings.Join([]string{
+				"data:",
+				"  foo: bar",
+			}, "\n"),
+			"test-chart/templates/configmap.yaml": strings.Join([]string{
+				"apiVersion: v1",
+				"kind: ConfigMap",
+				"metadata:",
+				"  namespace: {{ .Release.Namespace }}",
+				"  name: {{ .Release.Name }}-configmap",
+				"data:",
+				"  kube-version: {{.Capabilities.KubeVersion.Version}}",
+			}, "\n"),
+		}
+
+		gitClient := &GitClientMock{}
+
+		gitClient.
+			On("Clone", mock.Anything, mock.Anything, mock.Anything).
+			Run(func(mock.Arguments) {
+				err := createFileTree(path.Join(repoRoot, "charts"), chartFiles)
+				g.Expect(err).ToNot(gomega.HaveOccurred())
+			}).
+			Return(&git.Commit{Hash: git.Hash("dummy")}, nil)
+		expander := NewHelmReleaseExpander(
+			ctx,
+			logger,
+			func(
+				path string,
+				authOpts *git.AuthOptions,
+				clientOpts ...gogit.ClientOption,
+			) (GitClientInterface, error) {
+				repoRoot = path
+				return gitClient, nil
+			},
+		)
+		kubeVersion, err := chartutil.ParseKubeVersion("1.222")
+		g.Expect(err).ToNot(gomega.HaveOccurred())
+		output := &bytes.Buffer{}
+		err = expander.ExpandHelmReleases(
+			Credentials{repoURL: map[string][]byte{
+				"identity":    []byte("dummy"),
+				"known_hosts": []byte("dummy"),
+			}},
+			bytes.NewBufferString(input),
+			output,
+			kubeVersion,
+			false,
+		)
+		g.Expect(err).ToNot(gomega.HaveOccurred())
+		g.Expect(output.String()).To(gomega.Equal(strings.Join([]string{
+			input,
+			"---",
+			"# Source: test-chart/templates/configmap.yaml",
+			"apiVersion: v1",
+			"kind: ConfigMap",
+			"metadata:",
+			"  namespace: testns",
+			"  name: testns-test-configmap",
+			"data:",
+			"  kube-version: v1.222.0",
 			"",
 		}, "\n"),
 		))

@@ -7,6 +7,7 @@ import (
 	"github.com/fluxcd/pkg/git"
 	"github.com/fluxcd/pkg/git/gogit"
 	"github.com/spf13/cobra"
+	"helm.sh/helm/v3/pkg/chartutil"
 	"sigs.k8s.io/kustomize/kyaml/yaml"
 
 	"github.com/vladlosev/fouskoti/pkg/repository"
@@ -14,6 +15,7 @@ import (
 
 type ExpandCommandOptions struct {
 	credentialsFileName string
+	kubeVersion         string
 }
 
 const ExpandCommandName = "expand"
@@ -25,6 +27,16 @@ func NewExpandCommand(options *ExpandCommandOptions) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx, logger := getContextAndLogger(cmd)
 			logger.Info("Staring expand command")
+
+			kubeVersion, err := chartutil.ParseKubeVersion(options.kubeVersion)
+			if err != nil {
+				return fmt.Errorf(
+					"invalid --kube-version value %s: %w",
+					options.kubeVersion,
+					err,
+				)
+			}
+
 			input, err := getYAMLInputReader(args)
 			if err != nil {
 				return err
@@ -76,6 +88,7 @@ func NewExpandCommand(options *ExpandCommandOptions) *cobra.Command {
 				credentials,
 				input,
 				os.Stdout,
+				kubeVersion,
 				true,
 			)
 		},
@@ -87,6 +100,13 @@ func NewExpandCommand(options *ExpandCommandOptions) *cobra.Command {
 		"",
 		"",
 		"Name of the repository credentials file",
+	)
+	command.PersistentFlags().StringVarP(
+		&options.kubeVersion,
+		"kube-version",
+		"",
+		"1.28",
+		"Kubernetes version used for Capabilities.KubeVersion in charts",
 	)
 
 	return command

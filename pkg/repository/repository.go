@@ -349,6 +349,7 @@ func expandHelmRelease(
 	ctx context.Context,
 	logger *slog.Logger,
 	gitClientFactory gitClientFactoryFunc,
+	kubeVersion *chartutil.KubeVersion,
 	chartCache map[string]*chart.Chart,
 	credentials Credentials,
 	releaseNode *yaml.RNode,
@@ -410,8 +411,10 @@ func expandHelmRelease(
 		)
 	}
 
-	capabilities := chartutil.DefaultCapabilities
-	// TODO(vlad): Set k8s version in capabilities.
+	capabilities := chartutil.DefaultCapabilities.Copy()
+	if kubeVersion != nil {
+		capabilities.KubeVersion = *kubeVersion
+	}
 
 	targetNamespace := release.Spec.TargetNamespace
 	if targetNamespace == "" {
@@ -582,6 +585,7 @@ type releaseRepoRenderer struct {
 	ctx              context.Context
 	logger           *slog.Logger
 	gitClientFactory gitClientFactoryFunc
+	kubeVersion      *chartutil.KubeVersion
 	chartCache       map[string]*chart.Chart
 	credentials      Credentials
 	pairs            *[]releaseRepo
@@ -591,6 +595,7 @@ func newReleaseRepoRenderer(
 	ctx context.Context,
 	logger *slog.Logger,
 	gitClientFactory gitClientFactoryFunc,
+	kubeVersion *chartutil.KubeVersion,
 	chartCache map[string]*chart.Chart,
 	credentials Credentials,
 	pairs *[]releaseRepo,
@@ -599,6 +604,7 @@ func newReleaseRepoRenderer(
 		ctx:              ctx,
 		logger:           logger,
 		gitClientFactory: gitClientFactory,
+		kubeVersion:      kubeVersion,
 		chartCache:       chartCache,
 		credentials:      credentials,
 		pairs:            pairs,
@@ -615,6 +621,7 @@ func (renderer *releaseRepoRenderer) Filter(
 			renderer.ctx,
 			renderer.logger,
 			renderer.gitClientFactory,
+			renderer.kubeVersion,
 			renderer.chartCache,
 			renderer.credentials,
 			pair.release,
@@ -689,6 +696,7 @@ func (expander *HelmReleaseExpander) ExpandHelmReleases(
 	credentials Credentials,
 	input io.Reader,
 	output io.Writer,
+	kubeVersion *chartutil.KubeVersion,
 	enableChartInMemoryCache bool,
 ) error {
 	var chartCache map[string]*chart.Chart
@@ -702,6 +710,7 @@ func (expander *HelmReleaseExpander) ExpandHelmReleases(
 		expander.ctx,
 		expander.logger,
 		expander.gitClientFactory,
+		kubeVersion,
 		chartCache,
 		credentials,
 		&pairs,
