@@ -26,12 +26,15 @@ input.  The following options are available:
 | --log-level        | A level threshold for logging (must be debug, info, warn, or error) |
 | --log-format       | Format for the log entrie (text or json) |
 | --credentials-file | A path to the file with chart repository credentials |
+| --kube-version     | Kubernetes version to pass to charts in `.Capabilities.KubeVersion` |
+| --api-versions     | API version list (comma separated) to pass to charts in `.Capabilities.APIVersions` |
 
 The `--credentials-file` option is required when there are chart repositories
 that require authentication.  It must be a YAML file with a dictonariy, having
 the repository URLs as keys and a dictionaries of authentication credentials as
 values.  Currently, SSH Git repository URLs require two items: `identity` (a
-private SSH key) and `known_hosts` (public keys for the host in the URL)
+private SSH key) and `known_hosts` (public keys for the host in the URL).
+You can use a `$ENV_VAR` as value to use a value of an environment variable.
 
 Example of a credentials file:
 ```yaml
