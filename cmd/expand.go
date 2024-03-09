@@ -55,6 +55,8 @@ func NewExpandCommand(options *ExpandCommandOptions) *cobra.Command {
 						err,
 					)
 				}
+				defer credsFile.Close()
+
 				credentials, err = repository.ReadCredentials(credsFile)
 				if err != nil {
 					return fmt.Errorf(

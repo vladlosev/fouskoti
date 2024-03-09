@@ -272,6 +272,13 @@ func stopServing(server *http.Server, done <-chan struct{}) error {
 	return nil
 }
 
+func getDummySSHCreds(repoURL string) Credentials {
+	return Credentials{repoURL: map[string]string{
+		"identity":    "dummy",
+		"known_hosts": "dummy",
+	}}
+}
+
 type GitClientMock struct {
 	mock.Mock
 }
@@ -667,10 +674,7 @@ var _ = ginkgo.Describe("HelmRelease expansion check", func() {
 		)
 		output := &bytes.Buffer{}
 		err := expander.ExpandHelmReleases(
-			Credentials{repoURL: map[string][]byte{
-				"identity":    []byte("dummy"),
-				"known_hosts": []byte("dummy"),
-			}},
+			getDummySSHCreds(repoURL),
 			bytes.NewBufferString(input),
 			output,
 			nil,
@@ -771,10 +775,7 @@ var _ = ginkgo.Describe("HelmRelease expansion check", func() {
 		)
 		output := &bytes.Buffer{}
 		err := expander.ExpandHelmReleases(
-			Credentials{repoURL: map[string][]byte{
-				"identity":    []byte("dummy"),
-				"known_hosts": []byte("dummy"),
-			}},
+			getDummySSHCreds(repoURL),
 			bytes.NewBufferString(input),
 			output,
 			nil,
@@ -903,10 +904,7 @@ var _ = ginkgo.Describe("HelmRelease expansion check", func() {
 		)
 		output := &bytes.Buffer{}
 		err := expander.ExpandHelmReleases(
-			Credentials{repoURL: map[string][]byte{
-				"identity":    []byte("dummy"),
-				"known_hosts": []byte("dummy"),
-			}},
+			getDummySSHCreds(repoURL),
 			bytes.NewBufferString(input),
 			output,
 			nil,
@@ -1039,10 +1037,7 @@ var _ = ginkgo.Describe("HelmRelease expansion check", func() {
 		)
 		output := &bytes.Buffer{}
 		err := expander.ExpandHelmReleases(
-			Credentials{repoURL: map[string][]byte{
-				"identity":    []byte("dummy"),
-				"known_hosts": []byte("dummy"),
-			}},
+			getDummySSHCreds(repoURL),
 			bytes.NewBufferString(input),
 			output,
 			nil,
@@ -1140,10 +1135,7 @@ var _ = ginkgo.Describe("HelmRelease expansion check", func() {
 		)
 		output := &bytes.Buffer{}
 		err := expander.ExpandHelmReleases(
-			Credentials{repoURL: map[string][]byte{
-				"identity":    []byte("dummy"),
-				"known_hosts": []byte("dummy"),
-			}},
+			getDummySSHCreds(repoURL),
 			bytes.NewBufferString(input),
 			output,
 			nil,
@@ -1244,10 +1236,7 @@ var _ = ginkgo.Describe("HelmRelease expansion check", func() {
 		g.Expect(err).ToNot(gomega.HaveOccurred())
 		output := &bytes.Buffer{}
 		err = expander.ExpandHelmReleases(
-			Credentials{repoURL: map[string][]byte{
-				"identity":    []byte("dummy"),
-				"known_hosts": []byte("dummy"),
-			}},
+			getDummySSHCreds(repoURL),
 			bytes.NewBufferString(input),
 			output,
 			kubeVersion,
@@ -1348,10 +1337,7 @@ var _ = ginkgo.Describe("HelmRelease expansion check", func() {
 		)
 		output := &bytes.Buffer{}
 		err := expander.ExpandHelmReleases(
-			Credentials{repoURL: map[string][]byte{
-				"identity":    []byte("dummy"),
-				"known_hosts": []byte("dummy"),
-			}},
+			getDummySSHCreds(repoURL),
 			bytes.NewBufferString(input),
 			output,
 			nil,

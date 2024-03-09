@@ -71,7 +71,7 @@ func (loader *gitRepoChartLoader) cloneRepo(
 		)
 	}
 
-	authOpts, err := git.NewAuthOptions(*parsedURL, *repoCreds)
+	authOpts, err := git.NewAuthOptions(*parsedURL, repoCreds.AsBytesMap())
 	if err != nil {
 		return "", fmt.Errorf(
 			"unable to initialize Git auth options for Git repository %s/%s: %w",

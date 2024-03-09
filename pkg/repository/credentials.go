@@ -1,25 +1,32 @@
 package repository
 
 import (
-	"bytes"
 	"fmt"
 	"io"
 	"net/url"
 	"os"
+	"strings"
 
 	"golang.org/x/exp/maps"
-	"gopkg.in/yaml.v2"
+	"gopkg.in/yaml.v3"
 )
 
-type RepositoryCreds map[string][]byte
+type RepositoryCreds map[string]string
 
-func (creds RepositoryCreds) ExpandEnvVars() {
+func (creds RepositoryCreds) AsBytesMap() map[string][]byte {
+	result := map[string][]byte{}
+
+	for key, value := range creds {
+		result[key] = []byte(value)
+	}
+	return result
+}
+
+func (creds RepositoryCreds) expandEnvVars() {
 	for _, key := range maps.Keys(creds) {
 		value := creds[key]
-		if rest, found := bytes.CutPrefix(value, []byte{'$'}); found {
-			if len(rest) > 0 {
-				creds[key] = []byte(os.Getenv(string(rest)))
-			}
+		if rest, found := strings.CutPrefix(value, "$"); found && len(rest) > 0 {
+			creds[key] = os.Getenv(rest)
 		}
 	}
 }
@@ -36,6 +43,10 @@ func ReadCredentials(input io.Reader) (Credentials, error) {
 	err = yaml.Unmarshal(bytes, credentials)
 	if err != nil {
 		return nil, fmt.Errorf("unable to parse credentials YAML: %w", err)
+	}
+
+	for _, value := range credentials {
+		value.expandEnvVars()
 	}
 	return credentials, nil
 }
@@ -62,10 +73,4 @@ func (credentials Credentials) FindForRepo(
 		}
 	}
 	return nil, nil
-}
-
-func (credentials Credentials) ExpandEnvVars() {
-	for _, value := range credentials {
-		value.ExpandEnvVars()
-	}
 }
