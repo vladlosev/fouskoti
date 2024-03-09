@@ -8,7 +8,6 @@ import (
 	"github.com/fluxcd/pkg/git/gogit"
 	"github.com/spf13/cobra"
 	"helm.sh/helm/v3/pkg/chartutil"
-	"sigs.k8s.io/kustomize/kyaml/yaml"
 
 	"github.com/vladlosev/fouskoti/pkg/repository"
 )
@@ -45,11 +44,10 @@ func NewExpandCommand(options *ExpandCommandOptions) *cobra.Command {
 			}
 			defer input.Close()
 
-			stringCreds := map[string]map[string]string{}
 			credentials := repository.Credentials{}
 
 			if options.credentialsFileName != "" {
-				creds, err := os.ReadFile(options.credentialsFileName)
+				credsFile, err := os.Open(options.credentialsFileName)
 				if err != nil {
 					return fmt.Errorf(
 						"unable to open credentials file %s: %w",
@@ -57,21 +55,13 @@ func NewExpandCommand(options *ExpandCommandOptions) *cobra.Command {
 						err,
 					)
 				}
-				err = yaml.Unmarshal(creds, stringCreds)
+				credentials, err = repository.ReadCredentials(credsFile)
 				if err != nil {
 					return fmt.Errorf(
-						"unable to parse credentials file %s as YAML: %w",
+						"unable to read credentials from %s: %w",
 						options.credentialsFileName,
 						err,
 					)
-				}
-
-				for repo, items := range stringCreds {
-					credsItem := map[string][]byte{}
-					for name, content := range items {
-						credsItem[name] = []byte(content)
-					}
-					credentials[repo] = credsItem
 				}
 			}
 

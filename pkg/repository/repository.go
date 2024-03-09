@@ -49,32 +49,6 @@ type repositoryLoader interface {
 	) (*chart.Chart, error)
 }
 
-type Credentials map[string]map[string][]byte
-
-func (credentials Credentials) findForRepo(
-	repoURL *url.URL,
-) (map[string][]byte, error) {
-	if creds, ok := credentials[repoURL.String()]; ok {
-		return creds, nil
-	}
-	for storedRepoURL, creds := range credentials {
-		parsedURL, err := url.Parse(storedRepoURL)
-		if err != nil {
-			return nil, fmt.Errorf(
-				"unable to parse configured repository URL %s:%w",
-				storedRepoURL,
-				err,
-			)
-		}
-		if repoURL.Scheme == parsedURL.Scheme &&
-			repoURL.Host == parsedURL.Host &&
-			repoURL.User.Username() == parsedURL.User.Username() {
-			return creds, nil
-		}
-	}
-	return nil, nil
-}
-
 type GitClientInterface interface {
 	Clone(
 		ctx context.Context,

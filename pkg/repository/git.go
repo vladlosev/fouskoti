@@ -62,7 +62,7 @@ func (loader *gitRepoChartLoader) cloneRepo(
 		)
 	}
 
-	repoCreds, err := loader.credentials.findForRepo(parsedURL)
+	repoCreds, err := loader.credentials.FindForRepo(parsedURL)
 	if err != nil {
 		return "", fmt.Errorf(
 			"unable to find credentials for repository %s: %w",
@@ -71,7 +71,7 @@ func (loader *gitRepoChartLoader) cloneRepo(
 		)
 	}
 
-	authOpts, err := git.NewAuthOptions(*parsedURL, repoCreds)
+	authOpts, err := git.NewAuthOptions(*parsedURL, *repoCreds)
 	if err != nil {
 		return "", fmt.Errorf(
 			"unable to initialize Git auth options for Git repository %s/%s: %w",

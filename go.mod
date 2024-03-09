@@ -16,6 +16,7 @@ require (
 	github.com/onsi/gomega v1.31.1
 	github.com/spf13/cobra v1.8.0
 	github.com/stretchr/testify v1.8.4
+	golang.org/x/exp v0.0.0-20220722155223-a9213eeb770e
 	helm.sh/helm/v3 v3.14.2
 	k8s.io/apimachinery v0.29.2
 	sigs.k8s.io/kustomize/api v0.16.0
