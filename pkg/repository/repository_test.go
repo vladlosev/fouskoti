@@ -1308,7 +1308,7 @@ var _ = ginkgo.Describe("HelmRelease expansion check", func() {
 				"  namespace: {{ .Release.Namespace }}",
 				"  name: {{ .Release.Name }}-configmap",
 				"data:",
-				"  foo: bar",
+				`  keeps-default-capabilities: {{ .Capabilities.APIVersions.Has "policy/v1" }}`,
 			}, "\n"),
 		}
 
@@ -1352,7 +1352,7 @@ var _ = ginkgo.Describe("HelmRelease expansion check", func() {
 			"  namespace: testns",
 			"  name: testns-test-configmap",
 			"data:",
-			"  foo: bar",
+			"  keeps-default-capabilities: true", // The chart also has access to default capabilities.
 			"",
 		}, "\n"),
 		))

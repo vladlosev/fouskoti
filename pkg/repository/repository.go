@@ -394,7 +394,10 @@ func expandHelmRelease(
 		capabilities.KubeVersion = *kubeVersion
 	}
 	if len(apiVersions) > 0 {
-		capabilities.APIVersions = chartutil.VersionSet(apiVersions)
+		capabilities.APIVersions = append(
+			capabilities.APIVersions,
+			chartutil.VersionSet(apiVersions)...,
+		)
 	}
 
 	targetNamespace := release.Spec.TargetNamespace
