@@ -11,22 +11,29 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-type RepositoryCreds map[string]string
+type RepositoryConfig struct {
+	ConnectAs string `yaml:"connect-as"`
+}
 
-func (creds RepositoryCreds) AsBytesMap() map[string][]byte {
+type RepositoryCreds struct {
+	Config      RepositoryConfig  `yaml:"config"`
+	Credentials map[string]string `yaml:"credentials"`
+}
+
+func (creds *RepositoryCreds) AsBytesMap() map[string][]byte {
 	result := map[string][]byte{}
 
-	for key, value := range creds {
+	for key, value := range creds.Credentials {
 		result[key] = []byte(value)
 	}
 	return result
 }
 
 func (creds RepositoryCreds) expandEnvVars() {
-	for _, key := range maps.Keys(creds) {
-		value := creds[key]
+	for _, key := range maps.Keys(creds.Credentials) {
+		value := creds.Credentials[key]
 		if rest, found := strings.CutPrefix(value, "$"); found && len(rest) > 0 {
-			creds[key] = os.Getenv(rest)
+			creds.Credentials[key] = os.Getenv(rest)
 		}
 	}
 }

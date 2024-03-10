@@ -273,10 +273,14 @@ func stopServing(server *http.Server, done <-chan struct{}) error {
 }
 
 func getDummySSHCreds(repoURL string) Credentials {
-	return Credentials{repoURL: map[string]string{
-		"identity":    "dummy",
-		"known_hosts": "dummy",
-	}}
+	return Credentials{
+		repoURL: RepositoryCreds{
+			Credentials: map[string]string{
+				"identity":    "dummy",
+				"known_hosts": "dummy",
+			},
+		},
+	}
 }
 
 type GitClientMock struct {
@@ -652,9 +656,8 @@ var _ = ginkgo.Describe("HelmRelease expansion check", func() {
 		}, "\n")
 
 		gitClient := &GitClientMock{}
-
 		gitClient.
-			On("Clone", mock.Anything, mock.Anything, mock.Anything).
+			On("Clone", mock.Anything, repoURL, mock.Anything).
 			Run(func(mock.Arguments) {
 				err := createFileTree(path.Join(repoRoot, "charts/test-chart"), chartFiles)
 				g.Expect(err).ToNot(gomega.HaveOccurred())
@@ -752,9 +755,8 @@ var _ = ginkgo.Describe("HelmRelease expansion check", func() {
 		}, "\n")
 
 		gitClient := &GitClientMock{}
-
 		gitClient.
-			On("Clone", mock.Anything, mock.Anything, mock.Anything).
+			On("Clone", mock.Anything, repoURL, mock.Anything).
 			Once(). // Clone is attempted only once.
 			Run(func(mock.Arguments) {
 				err := createFileTree(path.Join(repoRoot, "charts/test-chart"), chartFiles)
@@ -882,9 +884,8 @@ var _ = ginkgo.Describe("HelmRelease expansion check", func() {
 		}
 
 		gitClient := &GitClientMock{}
-
 		gitClient.
-			On("Clone", mock.Anything, mock.Anything, mock.Anything).
+			On("Clone", mock.Anything, repoURL, mock.Anything).
 			Run(func(mock.Arguments) {
 				err := createFileTree(path.Join(repoRoot, "charts"), chartFiles)
 				g.Expect(err).ToNot(gomega.HaveOccurred())
@@ -1015,9 +1016,8 @@ var _ = ginkgo.Describe("HelmRelease expansion check", func() {
 		}
 
 		gitClient := &GitClientMock{}
-
 		gitClient.
-			On("Clone", mock.Anything, mock.Anything, mock.Anything).
+			On("Clone", mock.Anything, repoURL, mock.Anything).
 			Run(func(mock.Arguments) {
 				err := createFileTree(path.Join(repoRoot, "charts"), chartFiles)
 				g.Expect(err).ToNot(gomega.HaveOccurred())
@@ -1113,9 +1113,8 @@ var _ = ginkgo.Describe("HelmRelease expansion check", func() {
 		}
 
 		gitClient := &GitClientMock{}
-
 		gitClient.
-			On("Clone", mock.Anything, mock.Anything, mock.Anything).
+			On("Clone", mock.Anything, repoURL, mock.Anything).
 			Run(func(mock.Arguments) {
 				err := createFileTree(path.Join(repoRoot, "charts"), chartFiles)
 				g.Expect(err).ToNot(gomega.HaveOccurred())
@@ -1212,9 +1211,8 @@ var _ = ginkgo.Describe("HelmRelease expansion check", func() {
 		}
 
 		gitClient := &GitClientMock{}
-
 		gitClient.
-			On("Clone", mock.Anything, mock.Anything, mock.Anything).
+			On("Clone", mock.Anything, repoURL, mock.Anything).
 			Run(func(mock.Arguments) {
 				err := createFileTree(path.Join(repoRoot, "charts"), chartFiles)
 				g.Expect(err).ToNot(gomega.HaveOccurred())
@@ -1304,7 +1302,7 @@ var _ = ginkgo.Describe("HelmRelease expansion check", func() {
 				"  foo: bar",
 			}, "\n"),
 			"test-chart/templates/configmap.yaml": strings.Join([]string{
-				"apiVersion: {{ .Capabilities.APIVersions.Has \"v2\" | ternary \"v2\" \"v1\" }}",
+				`apiVersion: {{ .Capabilities.APIVersions.Has "v2" | ternary "v2" "v1" }}`,
 				"kind: ConfigMap",
 				"metadata:",
 				"  namespace: {{ .Release.Namespace }}",
@@ -1315,9 +1313,8 @@ var _ = ginkgo.Describe("HelmRelease expansion check", func() {
 		}
 
 		gitClient := &GitClientMock{}
-
 		gitClient.
-			On("Clone", mock.Anything, mock.Anything, mock.Anything).
+			On("Clone", mock.Anything, repoURL, mock.Anything).
 			Run(func(mock.Arguments) {
 				err := createFileTree(path.Join(repoRoot, "charts"), chartFiles)
 				g.Expect(err).ToNot(gomega.HaveOccurred())
@@ -1350,6 +1347,116 @@ var _ = ginkgo.Describe("HelmRelease expansion check", func() {
 			"---",
 			"# Source: test-chart/templates/configmap.yaml",
 			"apiVersion: v2", // The chart generates v2 as API version as it's available in capabilities.
+			"kind: ConfigMap",
+			"metadata:",
+			"  namespace: testns",
+			"  name: testns-test-configmap",
+			"data:",
+			"  foo: bar",
+			"",
+		}, "\n"),
+		))
+	})
+
+	ginkgo.It("substitutes repositories when configured", func() {
+		var repoRoot string
+		sshURL := "ssh://git@localhost/dummy.git"
+		httpsURL := "https://localhost/dummy.git"
+		input := strings.Join([]string{
+			"apiVersion: helm.toolkit.fluxcd.io/v2beta2",
+			"kind: HelmRelease",
+			"metadata:",
+			"  namespace: testns",
+			"  name: test",
+			"spec:",
+			"  chart:",
+			"    spec:",
+			"      chart: charts/test-chart",
+			"      sourceRef:",
+			"        kind: GitRepository",
+			"        name: local",
+			"  values:",
+			"    data:",
+			"      foo: baz",
+			"    dependency-chart:",
+			"      enabled: false",
+			"      data:",
+			"        foo: bar",
+			"---",
+			"apiVersion: source.toolkit.fluxcd.io/v1beta2",
+			"kind: GitRepository",
+			"metadata:",
+			"  namespace: testns",
+			"  name: local",
+			"spec:",
+			"  url: " + sshURL,
+		}, "\n")
+
+		chartFiles := map[string]string{
+			"test-chart/Chart.yaml": strings.Join([]string{
+				"apiVersion: v2",
+				"name: test-chart",
+				"version: 0.1.0",
+			}, "\n"),
+			"test-chart/values.yaml": strings.Join([]string{
+				"data:",
+				"  foo: bar",
+			}, "\n"),
+			"test-chart/templates/configmap.yaml": strings.Join([]string{
+				`apiVersion: {{ .Capabilities.APIVersions.Has "v2" | ternary "v2" "v1" }}`,
+				"kind: ConfigMap",
+				"metadata:",
+				"  namespace: {{ .Release.Namespace }}",
+				"  name: {{ .Release.Name }}-configmap",
+				"data:",
+				"  foo: bar",
+			}, "\n"),
+		}
+
+		gitClient := &GitClientMock{}
+		gitClient.
+			On("Clone", mock.Anything, httpsURL, mock.Anything).
+			Run(func(mock.Arguments) {
+				err := createFileTree(path.Join(repoRoot, "charts"), chartFiles)
+				g.Expect(err).ToNot(gomega.HaveOccurred())
+			}).
+			Return(&git.Commit{Hash: git.Hash("dummy")}, nil)
+		expander := NewHelmReleaseExpander(
+			ctx,
+			logger,
+			func(
+				path string,
+				authOpts *git.AuthOptions,
+				clientOpts ...gogit.ClientOption,
+			) (GitClientInterface, error) {
+				repoRoot = path
+				return gitClient, nil
+			},
+		)
+		credentials := Credentials{
+			sshURL: RepositoryCreds{
+				Config: RepositoryConfig{ConnectAs: httpsURL},
+				Credentials: map[string]string{
+					"identity":    "dummy",
+					"known_hosts": "dummy",
+				},
+			},
+		}
+		output := &bytes.Buffer{}
+		err := expander.ExpandHelmReleases(
+			credentials,
+			bytes.NewBufferString(input),
+			output,
+			nil,
+			nil,
+			false,
+		)
+		g.Expect(err).ToNot(gomega.HaveOccurred())
+		g.Expect(output.String()).To(gomega.Equal(strings.Join([]string{
+			input,
+			"---",
+			"# Source: test-chart/templates/configmap.yaml",
+			"apiVersion: v1",
 			"kind: ConfigMap",
 			"metadata:",
 			"  namespace: testns",

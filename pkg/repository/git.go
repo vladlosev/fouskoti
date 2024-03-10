@@ -71,6 +71,19 @@ func (loader *gitRepoChartLoader) cloneRepo(
 		)
 	}
 
+	if repoCreds.Config.ConnectAs != "" {
+		parsedURL, err = url.Parse(repoCreds.Config.ConnectAs)
+		if err != nil {
+			return "", fmt.Errorf(
+				"unable to parse replacement URL %s for %s: %w",
+				repoURL,
+				repoCreds.Config.ConnectAs,
+				err,
+			)
+		}
+		repoURL = parsedURL.String()
+	}
+
 	authOpts, err := git.NewAuthOptions(*parsedURL, repoCreds.AsBytesMap())
 	if err != nil {
 		return "", fmt.Errorf(
