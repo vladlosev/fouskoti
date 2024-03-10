@@ -19,18 +19,29 @@ and, if it finds any `HelmRelease` objects, will expand them into the resulting
 manifests, using charts from the repositories those `HelmRelease` objects refer
 to.  If the repository resources are missing in the input, the tool will fail.
 If you do not provide any input files, the tool will read from the standard
-input.  The following options are available:
+input.
+
+For example, here is how you could use the tool to verify the generated resources
+with [kubeconform](https://github.com/yannh/kubeconform):
+
+```
+kustomize build /my/kustomization/root | fouskoti expand --kube-version=1.28 | kubeconform --kubernetes-version=1.28.0
+```
+
+### Command line options
+
+The following options are available:
 
 | Option             | Description      |
 | ------------------ | ---------------- |
 | --log-level        | A level threshold for logging (must be debug, info, warn, or error) |
-| --log-format       | Format for the log entrie (text or json) |
+| --log-format       | Format for the log entries (text or json) |
 | --credentials-file | A path to the file with chart repository credentials |
 | --kube-version     | Kubernetes version to pass to charts in `.Capabilities.KubeVersion` |
 | --api-versions     | API version list (comma separated) to pass to charts in `.Capabilities.APIVersions` |
 
 The `--credentials-file` option is required when there are chart repositories
-that require authentication.  It must be a YAML file with a dictonariy, having
+that require authentication.  It must be a YAML file with a dictionary, having
 the repository URLs as keys and a dictionaries of authentication credentials as
 values.  Currently, SSH Git repository URLs require two items: `identity` (a
 private SSH key) and `known_hosts` (public keys for the host in the URL).
