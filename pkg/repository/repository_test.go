@@ -1358,7 +1358,7 @@ var _ = ginkgo.Describe("HelmRelease expansion check", func() {
 		))
 	})
 
-	ginkgo.It("substitutes repositories when configured", func() {
+	ginkgo.It("substitutes HTTPS repository URL when configured with token credential", func() {
 		var repoRoot string
 		sshURL := "ssh://git@localhost/dummy.git"
 		httpsURL := "https://localhost/dummy.git"
@@ -1378,10 +1378,6 @@ var _ = ginkgo.Describe("HelmRelease expansion check", func() {
 			"  values:",
 			"    data:",
 			"      foo: baz",
-			"    dependency-chart:",
-			"      enabled: false",
-			"      data:",
-			"        foo: bar",
 			"---",
 			"apiVersion: source.toolkit.fluxcd.io/v1beta2",
 			"kind: GitRepository",
@@ -1403,7 +1399,7 @@ var _ = ginkgo.Describe("HelmRelease expansion check", func() {
 				"  foo: bar",
 			}, "\n"),
 			"test-chart/templates/configmap.yaml": strings.Join([]string{
-				`apiVersion: {{ .Capabilities.APIVersions.Has "v2" | ternary "v2" "v1" }}`,
+				"apiVersion: v1",
 				"kind: ConfigMap",
 				"metadata:",
 				"  namespace: {{ .Release.Namespace }}",
@@ -1415,6 +1411,7 @@ var _ = ginkgo.Describe("HelmRelease expansion check", func() {
 
 		gitClient := &GitClientMock{}
 		gitClient.
+			// Now connects to the HTTPS URL rather than the SSH one.
 			On("Clone", mock.Anything, httpsURL, mock.Anything).
 			Run(func(mock.Arguments) {
 				err := createFileTree(path.Join(repoRoot, "charts"), chartFiles)
@@ -1435,10 +1432,8 @@ var _ = ginkgo.Describe("HelmRelease expansion check", func() {
 		)
 		credentials := Credentials{
 			sshURL: RepositoryCreds{
-				Config: RepositoryConfig{ConnectAs: httpsURL},
 				Credentials: map[string]string{
-					"identity":    "dummy",
-					"known_hosts": "dummy",
+					"token": "dummy",
 				},
 			},
 		}

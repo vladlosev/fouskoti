@@ -71,16 +71,13 @@ func (loader *gitRepoChartLoader) cloneRepo(
 		)
 	}
 
-	if repoCreds.Config.ConnectAs != "" {
-		parsedURL, err = url.Parse(repoCreds.Config.ConnectAs)
-		if err != nil {
-			return "", fmt.Errorf(
-				"unable to parse replacement URL %s for %s: %w",
-				repoURL,
-				repoCreds.Config.ConnectAs,
-				err,
-			)
-		}
+	if parsedURL.Scheme == "ssh" &&
+		repoCreds.Credentials["token"] != "" &&
+		repoCreds.Credentials["identity"] == "" {
+		// Re-write the URL to an HTTPS one.
+		parsedURL.Scheme = "https"
+		parsedURL.Host = parsedURL.Hostname()
+		parsedURL.User = nil
 		repoURL = parsedURL.String()
 	}
 

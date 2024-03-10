@@ -63,24 +63,4 @@ var _ = ginkgo.Describe("repository credentials", func() {
 			"foo",
 		))
 	})
-
-	ginkgo.It("allow URL substitution", func() {
-		input := bytes.NewBufferString(strings.Join([]string{
-			"ssh://git@github.com/:",
-			"  config:",
-			"    connect-as: https://github.com/",
-			"  credentials:",
-			"    token: foo",
-		}, "\n"))
-		creds, err := ReadCredentials(input)
-		g.Expect(err).ToNot(gomega.HaveOccurred())
-		g.Expect(creds).To(gomega.HaveLen(1))
-		g.Expect(creds).To(gomega.HaveKey("ssh://git@github.com/"))
-		repoCreds := creds["ssh://git@github.com/"]
-		g.Expect(repoCreds.Config.ConnectAs).To(gomega.Equal("https://github.com/"))
-		g.Expect(repoCreds.Credentials).To(gomega.HaveKeyWithValue(
-			"token",
-			"foo",
-		))
-	})
 })

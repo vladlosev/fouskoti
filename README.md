@@ -52,12 +52,11 @@ ssh://git@github.com/:
 
 In some CI systems, SSH keys for your repositories may sometimes not be
 available, with your CI pipeline only having access to a repository HTTPS token.
-In such situations, you can tell the program to use an HTTPS URL instead of
-an SSH one:
+In such situations, you can tell the program to use an HTTPS URL instead of an
+SSH one by providing a `token` credential instead of an `identity` one.  So this
+configuration will connect to https://github.com/ instead:
 ```yaml
 ssh://git@github.com/:
-  config:
-    connect-as: https://github.com/
   credentials:
     token: $GITHUB_TOKEN
 ```

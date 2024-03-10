@@ -12,11 +12,10 @@ import (
 )
 
 type RepositoryConfig struct {
-	ConnectAs string `yaml:"connect-as"`
 }
 
 type RepositoryCreds struct {
-	Config      RepositoryConfig  `yaml:"config"`
+	Config      *RepositoryConfig `yaml:"config,omitempty"`
 	Credentials map[string]string `yaml:"credentials"`
 }
 
