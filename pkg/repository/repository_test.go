@@ -1358,7 +1358,7 @@ var _ = ginkgo.Describe("HelmRelease expansion check", func() {
 		))
 	})
 
-	ginkgo.It("substitutes HTTPS repository URL when configured with token credential", func() {
+	ginkgo.It("substitutes HTTPS repository URL when configured with username/password credential", func() {
 		var repoRoot string
 		sshURL := "ssh://git@localhost/dummy.git"
 		httpsURL := "https://localhost/dummy.git"
@@ -1433,7 +1433,8 @@ var _ = ginkgo.Describe("HelmRelease expansion check", func() {
 		credentials := Credentials{
 			sshURL: RepositoryCreds{
 				Credentials: map[string]string{
-					"token": "dummy",
+					"username": "dummy",
+					"password": "dummy",
 				},
 			},
 		}

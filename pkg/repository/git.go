@@ -72,7 +72,7 @@ func (loader *gitRepoChartLoader) cloneRepo(
 	}
 
 	if parsedURL.Scheme == "ssh" &&
-		repoCreds.Credentials["token"] != "" &&
+		repoCreds.Credentials["password"] != "" &&
 		repoCreds.Credentials["identity"] == "" {
 		// Re-write the URL to an HTTPS one.
 		parsedURL.Scheme = "https"
