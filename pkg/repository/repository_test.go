@@ -1463,4 +1463,62 @@ var _ = ginkgo.Describe("HelmRelease expansion check", func() {
 		}, "\n"),
 		))
 	})
+
+	ginkgo.It("reports error when required credentials are missing", func() {
+		repoURL := "ssh://git@localhost/dummy.git"
+		input := strings.Join([]string{
+			"apiVersion: helm.toolkit.fluxcd.io/v2beta2",
+			"kind: HelmRelease",
+			"metadata:",
+			"  namespace: testns",
+			"  name: test",
+			"spec:",
+			"  chart:",
+			"    spec:",
+			"      chart: charts/test-chart",
+			"      sourceRef:",
+			"        kind: GitRepository",
+			"        name: local",
+			"  values:",
+			"    data:",
+			"      foo: baz",
+			"---",
+			"apiVersion: source.toolkit.fluxcd.io/v1beta2",
+			"kind: GitRepository",
+			"metadata:",
+			"  namespace: testns",
+			"  name: local",
+			"spec:",
+			"  url: " + repoURL,
+		}, "\n")
+
+		gitClient := &GitClientMock{}
+		gitClient.
+			// Now connects to the HTTPS URL rather than the SSH one.
+			On("Clone", mock.Anything, repoURL, mock.Anything).
+			Return(nil, fmt.Errorf("authentication required"))
+		expander := NewHelmReleaseExpander(
+			ctx,
+			logger,
+			func(
+				path string,
+				authOpts *git.AuthOptions,
+				clientOpts ...gogit.ClientOption,
+			) (GitClientInterface, error) {
+				return gitClient, nil
+			},
+		)
+		output := &bytes.Buffer{}
+		err := expander.ExpandHelmReleases(
+			Credentials{}, // No credentials provided.
+			bytes.NewBufferString(input),
+			output,
+			nil,
+			nil,
+			false,
+		)
+		g.Expect(err).To(gomega.MatchError(
+			gomega.ContainSubstring("'identity' is required")),
+		)
+	})
 })

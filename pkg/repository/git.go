@@ -71,17 +71,25 @@ func (loader *gitRepoChartLoader) cloneRepo(
 		)
 	}
 
-	if parsedURL.Scheme == "ssh" &&
-		repoCreds.Credentials["password"] != "" &&
-		repoCreds.Credentials["identity"] == "" {
-		// Re-write the URL to an HTTPS one.
-		parsedURL.Scheme = "https"
-		parsedURL.Host = parsedURL.Hostname()
-		parsedURL.User = nil
-		repoURL = parsedURL.String()
+	var authOpts *git.AuthOptions
+	var credentials map[string][]byte
+
+	if repoCreds != nil {
+		if parsedURL.Scheme == "ssh" &&
+			repoCreds.Credentials["password"] != "" &&
+			repoCreds.Credentials["identity"] == "" {
+			// Re-write the URL to an HTTPS one.
+			parsedURL.Scheme = "https"
+			parsedURL.Host = parsedURL.Hostname()
+			parsedURL.User = nil
+			repoURL = parsedURL.String()
+		}
+		credentials = repoCreds.AsBytesMap()
+	} else {
+		credentials = nil
 	}
 
-	authOpts, err := git.NewAuthOptions(*parsedURL, repoCreds.AsBytesMap())
+	authOpts, err = git.NewAuthOptions(*parsedURL, credentials)
 	if err != nil {
 		return "", fmt.Errorf(
 			"unable to initialize Git auth options for Git repository %s/%s: %w",
