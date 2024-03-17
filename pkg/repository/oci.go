@@ -126,6 +126,8 @@ func (loader *ociRepoChartLoader) loadRepositoryChart(
 	chartName string,
 	chartVersionSpec string,
 ) (*chart.Chart, error) {
+	savedLogger := loader.logger
+	defer func() { loader.logger = savedLogger }()
 
 	var repo *sourcev1beta2.HelmRepository
 	if repoNode != nil {
@@ -139,8 +141,17 @@ func (loader *ociRepoChartLoader) loadRepositoryChart(
 				err,
 			)
 		}
+		loader.logger = loader.logger.With(
+			"namespace", repo.Namespace,
+			"name", repo.Name,
+		)
 		repoURL = repo.Spec.URL
 	}
+
+	loader.logger = loader.logger.With(
+		"url", repoURL,
+		"chart", chartName,
+	)
 
 	repoURL, err := normalizeURL(repoURL)
 	if err != nil {
@@ -152,11 +163,7 @@ func (loader *ociRepoChartLoader) loadRepositoryChart(
 	}
 
 	loader.logger.
-		With(
-			"repoURL", repoURL,
-			"name", chartName,
-			"version", chartVersionSpec,
-		).
+		With("version", chartVersionSpec).
 		Debug("Loading chart from OCI Helm repository")
 
 	// TODO(vlad): Implement chart caching.
@@ -227,11 +234,7 @@ func (loader *ociRepoChartLoader) loadRepositoryChart(
 	if loader.chartCache != nil {
 		if chart, ok := loader.chartCache[chartKey]; ok {
 			loader.logger.
-				With(
-					"repoURL", repoURL,
-					"name", chartName,
-					"version", chartVersion,
-				).
+				With("version", chartVersion).
 				Debug("Using chart from in-memory cache")
 			return chart, nil
 		}
@@ -291,11 +294,7 @@ func (loader *ociRepoChartLoader) loadRepositoryChart(
 	}
 
 	loader.logger.
-		With(
-			"repoURL", repoURL,
-			"name", chartName,
-			"version", chart.Metadata.Version,
-		).
+		With("version", chart.Metadata.Version).
 		Debug("Finished loading chart")
 	return chart, nil
 }

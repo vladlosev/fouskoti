@@ -152,13 +152,15 @@ func (loader *gitRepoChartLoader) loadRepositoryChart(
 	chartName string,
 	chartVersionSpec string,
 ) (*chart.Chart, error) {
-	loader.logger.
-		With(
-			"repoName", repoNode.GetName(),
-			"repoNamespace", repoNode.GetNamespace(),
-			"name", chartName,
-		).
-		Debug("Loading chart from Git repository")
+	savedLogger := loader.logger
+	defer func() { loader.logger = savedLogger }()
+
+	loader.logger = loader.logger.With(
+		"namespace", repoNode.GetNamespace(),
+		"name", repoNode.GetName(),
+		"chart", chartName,
+	)
+	loader.logger.Debug("Loading chart from Git repository")
 
 	var repo sourcev1.GitRepository
 
@@ -174,6 +176,7 @@ func (loader *gitRepoChartLoader) loadRepositoryChart(
 
 	if repoURL == "" {
 		repoURL = repo.Spec.URL
+		loader.logger = loader.logger.With("url", repoURL)
 	}
 	ref := normalizeGitReference(repo.Spec.Reference)
 	chartKey := fmt.Sprintf(
@@ -190,12 +193,11 @@ func (loader *gitRepoChartLoader) loadRepositoryChart(
 		if chart, ok := loader.chartCache[chartKey]; ok {
 			loader.logger.
 				With(
-					"repoURL", repoURL,
-					"name", chartName,
+					"url", repoURL,
 					"branch", ref.Branch,
 					"tag", ref.Tag,
 					"semver", ref.SemVer,
-					"name", ref.Name,
+					"ref", ref.Name,
 					"commit", ref.Commit,
 				).
 				Debug("Using chart from in-memory cache")
@@ -226,7 +228,6 @@ func (loader *gitRepoChartLoader) loadRepositoryChart(
 		)
 	}
 
-	// TODO(vlad): Handle relative dependency paths here.
 	err = loadChartDependencies(
 		loader.loaderConfig,
 		chart,
@@ -252,12 +253,7 @@ func (loader *gitRepoChartLoader) loadRepositoryChart(
 	}
 
 	loader.logger.
-		With(
-			"repoName", repoNode.GetName(),
-			"repoNamespace", repoNode.GetNamespace(),
-			"name", chartName,
-			"version", chart.Metadata.Version,
-		).
+		With("version", chart.Metadata.Version).
 		Debug("Finished loading chart")
 
 	return chart, nil

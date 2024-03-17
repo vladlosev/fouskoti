@@ -58,6 +58,9 @@ func (loader *helmRepoChartLoader) loadRepositoryChart(
 	chartName string,
 	chartVersionSpec string,
 ) (*chart.Chart, error) {
+	savedLogger := loader.logger
+	defer func() { loader.logger = savedLogger }()
+
 	if repoNode != nil {
 		var repo sourcev1beta2.HelmRepository
 		err := decodeToObject(repoNode, &repo)
@@ -69,10 +72,14 @@ func (loader *helmRepoChartLoader) loadRepositoryChart(
 				err,
 			)
 		}
+		loader.logger = loader.logger.With(
+			"namespace", repo.Namespace,
+			"name", repo.Name,
+		)
 		repoURL = repo.Spec.URL
 	}
 
-	normalizedURL, err := normalizeURL(repoURL)
+	repoURL, err := normalizeURL(repoURL)
 	if err != nil {
 		return nil, fmt.Errorf(
 			"invalid Helm repository URL %s: %w",
@@ -81,25 +88,12 @@ func (loader *helmRepoChartLoader) loadRepositoryChart(
 		)
 	}
 
-	return loader.loadChartByURL(
-		normalizedURL,
-		chartName,
-		chartVersionSpec,
+	loader.logger = loader.logger.With(
+		"url", repoURL,
+		"chart", chartName,
+		"version", chartVersionSpec,
 	)
-}
-
-func (loader *helmRepoChartLoader) loadChartByURL(
-	repoURL string,
-	chartName string,
-	chartVersionSpec string,
-) (*chart.Chart, error) {
-	loader.logger.
-		With(
-			"repoURL", repoURL,
-			"name", chartName,
-			"version", chartVersionSpec,
-		).
-		Debug("Loading chart from Helm repository")
+	loader.logger.Debug("Loading chart from Helm repository")
 
 	repoPath, err := getCachePathForRepo(loader.cacheRoot, repoURL)
 	if err != nil {
@@ -156,13 +150,7 @@ func (loader *helmRepoChartLoader) loadChartByURL(
 	chartKey := fmt.Sprintf("%s#%s#%s", repoURL, chartName, chartVersion)
 	if loader.chartCache != nil {
 		if chart, ok := loader.chartCache[chartKey]; ok {
-			loader.logger.
-				With(
-					"repoURL", repoURL,
-					"name", chartName,
-					"version", chartVersion,
-				).
-				Debug("Using chart from in-memory cache")
+			loader.logger.Debug("Using chart from in-memory cache")
 			return chart, nil
 		}
 	}
@@ -230,11 +218,7 @@ func (loader *helmRepoChartLoader) loadChartByURL(
 	}
 
 	loader.logger.
-		With(
-			"repoURL", repoURL,
-			"name", chartName,
-			"version", chart.Metadata.Version,
-		).
+		With("version", chart.Metadata.Version).
 		Debug("Finished loading chart")
 	return chart, nil
 }
