@@ -28,6 +28,17 @@ with [kubeconform](https://github.com/yannh/kubeconform):
 kustomize build /my/kustomization/root | fouskoti expand --kube-version=1.28 | kubeconform --kubernetes-version=1.28.0
 ```
 
+This will check that you don't generate resources with API versions that are
+removed in the next Kubernetes version using
+[Pluto](https://github.com/FairwindsOps/pluto) (useful before Kubernetes cluster
+upgrade):
+```
+kustomize build /my/kustomization/root | \
+  fouskoti expand --kube-version=$next_k8s_ver | \
+  pluto detect --ignore-deprecations --target-versions=k8s=$next_k8s_ver -
+
+```
+
 ### Command line options
 
 The following options are available:
