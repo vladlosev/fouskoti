@@ -40,12 +40,27 @@ The following options are available:
 | --kube-version     | Kubernetes version to pass to charts in `.Capabilities.KubeVersion` |
 | --api-versions     | API version list (comma separated) to pass to charts in `.Capabilities.APIVersions` |
 
-The `--credentials-file` option is required when there are chart repositories
-that require authentication.  It must be a YAML file with a dictionary, having
-the repository URLs as keys and a dictionaries of authentication credentials as
-values.  Currently, SSH Git repository URLs require two items: `identity` (a
-private SSH key) and `known_hosts` (public keys for the host in the URL).
-You can use a `$ENV_VAR` as value to use a value of an environment variable.
+
+#### Authentication
+
+When accessing charts stored as an OCI artifact in a private AWS ECR repository,
+the program to try to automatically authenticate to the repository if it's
+configured with required AWS credentials.
+
+In other cases, the `--credentials-file` option is required to provide the
+authentication credentials to repositories that require authentication.  It must
+be a YAML file with a dictionary, having the repository URLs as keys and a
+dictionaries of authentication credentials as values.  If there is no exact
+repository URL match,  the program will try to match the by just the repository
+host name.  Currently, SSH Git repository URLs require two items: `identity` (a
+private SSH key) and `known_hosts` (public host keys for the host in the URL).
+HTTPS and OCI repositories can use either the `bearerToken` key for token based
+authentication or the `username` and `password` keys for basic HTTP
+authentication.  In both cases you can also provide the `caFile` key for custom
+CA to verify the server certificate.
+
+In order to avoid putting sensitive credentials into this configuration file you
+can use a `$ENV_VAR` syntax to use a value of an environment variable.
 
 Example of a credentials file:
 ```yaml
@@ -61,11 +76,19 @@ ssh://git@github.com/:
       github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl
 ```
 
+Here is an example of an HTTPS based repository URL:
+```yaml
+https://github.com/:
+  credentials:
+    username: git
+    password: $GITHUB_TOKEN
+```
+
 In some CI systems, SSH keys for your repositories may sometimes not be
 available, with your CI pipeline only having access to a repository HTTPS token.
 In such situations, you can tell the program to use an HTTPS URL instead of an
 SSH one by providing a `username` and `password` credential instead of an
-`identity` one.  So this configuration will connect to https://github.com/
+`identity` one.  This configuration will connect to https://github.com/
 instead:
 ```yaml
 ssh://git@github.com/:
