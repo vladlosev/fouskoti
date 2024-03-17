@@ -228,6 +228,7 @@ func (loader *gitRepoChartLoader) loadRepositoryChart(
 		)
 	}
 
+	loader.logger = loader.logger.WithGroup("deps")
 	err = loadChartDependencies(
 		loader.loaderConfig,
 		chart,

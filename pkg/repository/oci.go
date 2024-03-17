@@ -193,18 +193,42 @@ func (loader *ociRepoChartLoader) loadRepositoryChart(
 		)
 	}
 
-	authConfig, err := loader.awsLogin(parsedURL.Host)
+	var username string
+	var password string
+
+	repoCreds, err := loader.credentials.FindForRepo(parsedURL)
 	if err != nil {
 		return nil, fmt.Errorf(
-			"unable to log in to AWS registry %s: %w",
-			parsedURL.Host,
+			"unable to find credentials for repository %s: %w",
+			repoURL,
 			err,
 		)
+	}
+	if repoCreds != nil {
+		username = string(repoCreds.Credentials["username"])
+		password = string(repoCreds.Credentials["password"])
+		loader.logger.Debug("Using password from credentials file")
+	}
+
+	if username == "" || password == "" {
+		if repo != nil && repo.Spec.Provider == "aws" {
+			authConfig, err := loader.awsLogin(parsedURL.Host)
+			if err != nil {
+				return nil, fmt.Errorf(
+					"unable to log in to AWS registry %s: %w",
+					parsedURL.Host,
+					err,
+				)
+			}
+
+			username = authConfig.Username
+			password = authConfig.Password
+		}
 	}
 
 	err = registryClient.Login(
 		parsedURL.Host,
-		registry.LoginOptBasicAuth(authConfig.Username, authConfig.Password),
+		registry.LoginOptBasicAuth(username, password),
 	)
 	if err != nil {
 		return nil, fmt.Errorf(
@@ -278,6 +302,7 @@ func (loader *ociRepoChartLoader) loadRepositoryChart(
 		)
 	}
 
+	loader.logger = loader.logger.WithGroup("deps")
 	err = loadChartDependencies(loader.loaderConfig, chart, nil)
 	if err != nil {
 		return nil, fmt.Errorf(

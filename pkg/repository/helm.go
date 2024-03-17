@@ -202,6 +202,7 @@ func (loader *helmRepoChartLoader) loadRepositoryChart(
 		)
 	}
 
+	loader.logger = loader.logger.WithGroup("deps")
 	err = loadChartDependencies(loader.loaderConfig, chart, nil)
 	if err != nil {
 		return nil, fmt.Errorf(
