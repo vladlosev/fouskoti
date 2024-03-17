@@ -30,44 +30,6 @@ func newOciRepositoryLoader(config loaderConfig) repositoryLoader {
 	return &ociRepoChartLoader{loaderConfig: config}
 }
 
-func (loader *ociRepoChartLoader) loadRepositoryChart(
-	repoNode *yaml.RNode,
-	repoURL string,
-	parentContext *chartContext,
-	chartName string,
-	chartVersionSpec string,
-) (*chart.Chart, error) {
-
-	if repoNode != nil {
-		var repo sourcev1beta2.HelmRepository
-		err := decodeToObject(repoNode, &repo)
-		if err != nil {
-			return nil, fmt.Errorf(
-				"unable to decode OCIRepository %s/%s: %w",
-				repoNode.GetNamespace(),
-				repoNode.GetName(),
-				err,
-			)
-		}
-		repoURL = repo.Spec.URL
-	}
-
-	normalizedURL, err := normalizeURL(repoURL)
-	if err != nil {
-		return nil, fmt.Errorf(
-			"invalid Helm repository URL %s: %w",
-			repoURL,
-			err,
-		)
-	}
-
-	return loader.loadChartByURL(
-		normalizedURL,
-		chartName,
-		chartVersionSpec,
-	)
-}
-
 func (loader *ociRepoChartLoader) awsLogin(registryHost string) (*authn.AuthConfig, error) {
 	authenticator, err := aws.NewClient().Login(loader.ctx, true, registryHost)
 	if err != nil {
@@ -157,11 +119,38 @@ func (loader *ociRepoChartLoader) getChartVersion(
 	return result, nil
 }
 
-func (loader *ociRepoChartLoader) loadChartByURL(
+func (loader *ociRepoChartLoader) loadRepositoryChart(
+	repoNode *yaml.RNode,
 	repoURL string,
+	parentContext *chartContext,
 	chartName string,
 	chartVersionSpec string,
 ) (*chart.Chart, error) {
+
+	var repo *sourcev1beta2.HelmRepository
+	if repoNode != nil {
+		repo = &sourcev1beta2.HelmRepository{}
+		err := decodeToObject(repoNode, repo)
+		if err != nil {
+			return nil, fmt.Errorf(
+				"unable to decode OCIRepository %s/%s: %w",
+				repoNode.GetNamespace(),
+				repoNode.GetName(),
+				err,
+			)
+		}
+		repoURL = repo.Spec.URL
+	}
+
+	repoURL, err := normalizeURL(repoURL)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"invalid Helm repository URL %s: %w",
+			repoURL,
+			err,
+		)
+	}
+
 	loader.logger.
 		With(
 			"repoURL", repoURL,
@@ -171,7 +160,7 @@ func (loader *ociRepoChartLoader) loadChartByURL(
 		Debug("Loading chart from OCI Helm repository")
 
 	// TODO(vlad): Implement chart caching.
-	_, err := getCachePathForRepo(loader.cacheRoot, repoURL)
+	_, err = getCachePathForRepo(loader.cacheRoot, repoURL)
 	if err != nil {
 		return nil, fmt.Errorf(
 			"unable to get cache path for Helm repository %s: %w",
