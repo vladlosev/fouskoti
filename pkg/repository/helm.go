@@ -6,7 +6,7 @@ import (
 	"path"
 	"strings"
 
-	sourcev1beta2 "github.com/fluxcd/source-controller/api/v1beta2"
+	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 	"helm.sh/helm/v3/pkg/chart"
 	helmloader "helm.sh/helm/v3/pkg/chart/loader"
 	"helm.sh/helm/v3/pkg/cli"
@@ -62,7 +62,7 @@ func (loader *helmRepoChartLoader) loadRepositoryChart(
 	defer func() { loader.logger = savedLogger }()
 
 	if repoNode != nil {
-		var repo sourcev1beta2.HelmRepository
+		var repo sourcev1.HelmRepository
 		err := decodeToObject(repoNode, &repo)
 		if err != nil {
 			return nil, fmt.Errorf(

@@ -15,7 +15,7 @@ import (
 	"slices"
 	"strings"
 
-	helmv2beta2 "github.com/fluxcd/helm-controller/api/v2beta2"
+	helmv2 "github.com/fluxcd/helm-controller/api/v2"
 	"github.com/fluxcd/pkg/git"
 	"github.com/fluxcd/pkg/git/gogit"
 	"github.com/fluxcd/pkg/git/repository"
@@ -210,7 +210,7 @@ func loadRepositoryChart(
 	gitClientFactory gitClientFactoryFunc,
 	chartCache map[string]*chart.Chart,
 	credentials Credentials,
-	release *helmv2beta2.HelmRelease,
+	release *helmv2.HelmRelease,
 	repoNode *yaml.RNode,
 ) (*chart.Chart, error) {
 	cacheRoot, err := os.MkdirTemp("", "chart-repo-cache-")
@@ -333,7 +333,7 @@ func expandHelmRelease(
 	releaseNode *yaml.RNode,
 	repoNode *yaml.RNode,
 ) ([]*yaml.RNode, error) {
-	var release helmv2beta2.HelmRelease
+	var release helmv2.HelmRelease
 	err := decodeToObject(releaseNode, &release)
 	if err != nil {
 		return nil, fmt.Errorf(
