@@ -457,7 +457,7 @@ func expandHelmRelease(
 			)
 		}
 		for _, node := range result {
-			node.YNode().HeadComment = fmt.Sprintf("Source: " + key)
+			node.YNode().HeadComment = fmt.Sprintf("Source: %s", key)
 			results = append(results, node)
 		}
 	}
